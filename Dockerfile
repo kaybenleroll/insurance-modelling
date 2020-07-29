@@ -15,6 +15,7 @@ RUN apt-get update \
     poweRlaw \
     rprojroot \
     sp \
+    sweep \
     xts
 
 
