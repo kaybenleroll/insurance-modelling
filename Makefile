@@ -54,7 +54,7 @@ docker-run:
 	  ${IMAGE_TAG}
 
 docker-stop:
-	docker stop $(shell docker ps -q -a)
+	docker stop ${CONTAINER_NAME}
 
 docker-clean:
 	docker rm $(shell docker ps -q -a)
