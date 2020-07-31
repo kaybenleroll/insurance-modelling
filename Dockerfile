@@ -4,6 +4,7 @@ RUN apt-get update \
   && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends \
     byobu \
+    graphviz \
     less \
     libxml2-dev \
     zlib1g-dev \
@@ -25,4 +26,4 @@ RUN wget http://cas.uqam.ca/pub/R/src/contrib/CASdatasets_1.0-10.tar.gz \
   && R CMD INSTALL CASdatasets_1.0-10.tar.gz \
   && rm /tmp/*.tar.gz
 
-
+WORKDIR /home/rstudio

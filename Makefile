@@ -12,6 +12,8 @@ RSTUDIO_PORT=8787
 CONTAINER_NAME=modelling
 
 
+### Project build targets
+.SUFFIXES: .Rmd .html .dot .png
 
 RMD_FILES  := $(wildcard *.Rmd)
 HTML_FILES := $(patsubst %.Rmd,%.html,$(RMD_FILES))
@@ -19,18 +21,24 @@ HTML_FILES := $(patsubst %.Rmd,%.html,$(RMD_FILES))
 
 all-html: $(HTML_FILES)
 
-
-
-%.html: %.Rmd
+.Rmd.html:
 	Rscript -e 'rmarkdown::render("$<")'
+
+.dot.png: %.dot
+	dot -Tpng -o$*.png $<
+
+full_deps.dot:
+	makefile2graph all-html > full_deps.dot
+
+depgraph: full_deps.dot full_deps.png
+
+
+exploring_mtpl_datasets.html: construct_mtpl_datasets.html
 
 
 
 echo-reponame:
 	echo "${REPO_NAME}"
-
-
-
 
 clean-html:
 	rm -rfv *.html
@@ -52,6 +60,11 @@ docker-run:
 	  -e PASSWORD=quickpass \
 	  --name ${CONTAINER_NAME} \
 	  ${IMAGE_TAG}
+
+docker-bash:
+	docker exec -it -u ${DOCKER_USER} ${CONTAINER_NAME} bash
+
+
 
 docker-stop:
 	docker stop ${CONTAINER_NAME}
