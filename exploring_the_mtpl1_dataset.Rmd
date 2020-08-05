@@ -1,5 +1,5 @@
 ---
-title: "Exploring the MTPL Dataset"
+title: "Exploring the MTPL1 Dataset"
 author: "Mick Cooney <mickcooney@gmail.com>"
 date: "`r Sys.Date()`"
 output:
@@ -49,8 +49,6 @@ options(width = 80L,
         )
 
 theme_set(theme_cowplot())
-
-gcs_auth("credentials/google-application-credentials.json")
 
 set.seed(42)
 ```
@@ -116,7 +114,7 @@ hist_bins_count <- 50
 First we load the dataset.
 
 ```{r load_dataset, echo=TRUE}
-
+rawdata_tbl <- read_rds("data/modelling1_data_tbl.rds")
 
 rawdata_tbl %>% glimpse()
 ```
@@ -147,7 +145,7 @@ We now create derived features useful for modelling. These values are
 new variables calculated from existing variables in the data.
 
 ```{r construct_derived_values, echo=FALSE}
-data_tbl <- data_tbl
+data_tbl <- data_tbl %>% select(-sev_data)
 
 data_tbl %>% glimpse()
 ```
@@ -345,33 +343,6 @@ if (length(drop_vars) > 0) {
 ```
 
 
-
-## Output to Cloud Storage
-
-For data security reasons, we do not save this file to disk, but instead we
-upload the data to Google Cloud Storage.
-
-We do not want all the data provided in the SSLA for the moment, instead we
-keep a subset of the data, for the purposes of building a frequency and
-severity model.
-
-```{r subset_columns, echo=TRUE}
-output_data_tbl <- shrink_ssla_data(data_tbl)
-
-output_data_tbl %>% glimpse()
-```
-
-Having constructed the output data we now upload the data to GCS.
-
-```{r upload_to_gcs, echo=TRUE}
-f <- function(input, output) write_rds(input, path = output)
-
-output_data_tbl %>%
-  gcs_upload(name            = "ssla_output_tbl.rds",
-             bucket          = "sslasecure",
-             predefinedAcl   = "bucketLevel",
-             object_function = f)
-```
 
 
 ```{r, echo=FALSE}
