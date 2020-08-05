@@ -1,0 +1,223 @@
+---
+title: "Construct MTPL Datasets"
+author: "Mick Cooney <mickcooney@gmail.com>"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    theme: spacelab
+    highlight: pygments
+    number_sections: TRUE
+    toc: TRUE
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: FALSE
+  pdf_document: default
+---
+
+
+```{r import_libraries, echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(tidy       = FALSE,
+                      cache      = FALSE,
+                      warning    = FALSE,
+                      message    = FALSE,
+                      fig.height =     8,
+                      fig.width  =    11
+                     )
+
+library(conflicted)
+library(tidyverse)
+library(scales)
+library(cowplot)
+library(magrittr)
+library(rlang)
+library(purrr)
+library(vctrs)
+library(fs)
+library(forcats)
+library(snakecase)
+library(lubridate)
+
+library(CASdatasets)
+
+source("custom_functions.R")
+
+resolve_conflicts(c("magrittr", "rlang", "dplyr", "readr", "purrr", "ggplot2"))
+
+
+options(width = 80L,
+        warn  = 1,
+        mc.cores = parallel::detectCores()
+        )
+
+theme_set(theme_cowplot())
+
+set.seed(42)
+```
+
+
+
+# Load MTPL Data
+
+We want to load the MTPL dataset from the `CASdatasets` package - this data
+contains both the policy and claim data.
+
+```{r load_data, echo=TRUE}
+data(freMTPLfreq)
+data(freMTPLsev)
+
+data(freMTPL2freq)
+data(freMTPL2sev)
+```
+
+We now take both datasets and try to construct a single dataset in each case.
+
+To do this, we need to check the structure of all these.
+
+
+```{r check_first_dataset, echo=TRUE}
+freMTPLfreq %>% glimpse()
+freMTPLsev  %>% glimpse()
+```
+
+---
+
+We also want to check the structure of the second dataset.
+
+```{r check_second_dataset, echo=TRUE}
+freMTPL2freq %>% glimpse()
+freMTPL2sev  %>% glimpse()
+```
+
+
+
+# Reconstruct Data
+
+Both sets of data has ID columns of mis-matched types - `PolicyID` and `IDpol`
+- so we convert all of them to characters for the purposes of joining them
+
+```{r reconstruct_first_data_cols, echo=TRUE}
+freq1_tbl <- freMTPLfreq %>%
+  as_tibble() %>%
+  mutate(PolicyID = PolicyID %>% as.character())
+
+freq1_tbl %>% glimpse()
+
+sev1_tbl <- freMTPLsev %>%
+  as_tibble() %>%
+  mutate(PolicyID = PolicyID %>% as.character())
+
+sev1_tbl %>% glimpse()
+```
+
+
+We now want to fix the second dataset in a similar fashion.
+
+```{r reconstruct_second_data_cols, echo=TRUE}
+freq2_tbl <- freMTPL2freq %>%
+  as_tibble() %>%
+  mutate(IDpol = IDpol %>% as.character())
+
+freq2_tbl %>% glimpse()
+
+sev2_tbl <- freMTPL2sev %>%
+  as_tibble() %>%
+  mutate(IDpol = IDpol %>% as.character())
+
+sev2_tbl %>% glimpse()
+```
+
+
+# Check Matching IDs
+
+We want to ensure that all data in the both sets have corresponding values in
+the other dataset - in particular, we want to ensure that all claim amounts
+match the frequency amounts.
+
+```{r match_first_claim_amounts, echo=TRUE}
+sev1_tbl %>%
+  anti_join(freq1_tbl, by = "PolicyID") %>%
+  glimpse()
+```
+
+The first dataset has no mismatched claims as this table has no rows.
+
+We now move on to the second dataset:
+
+```{r match_second_claim_amounts, echo=TRUE}
+sev2_tbl %>%
+  anti_join(freq2_tbl, by = "IDpol") %>%
+  glimpse()
+
+sev2_tbl %>%
+  anti_join(freq2_tbl, by = "IDpol") %>%
+  count(IDpol, name = "claim_count") %>%
+  glimpse()
+```
+
+We see we have almost 200 claims that do not have a matching policy, but those
+claims are associated with only six IDs. This poses a conundrum for our
+modelling that we will need to address later.
+
+For now though, we just add these `IDpol` values to our frequency table for
+now.
+
+```{r add_missing_policies, echo=TRUE}
+missing_tbl <- sev2_tbl %>%
+  anti_join(freq2_tbl, by = "IDpol") %>%
+  select(IDpol) %>%
+  distinct()
+
+freq2_tbl <- list(
+    freq2_tbl %>% select(-ClaimNb),
+    missing_tbl
+    ) %>%
+  bind_rows()
+
+freq2_tbl %>% glimpse()
+```
+
+
+# Construct Datasets
+
+We now construct our datasets to combine both policy and claim data so we
+can analyse it.
+
+
+```{r construct_first_dataset, echo=TRUE}
+modelling1_data_tbl <- freq1_tbl %>%
+  nest_join(sev1_tbl, by = "PolicyID", name = "sev_data") %>%
+  select(-ClaimNb) %>%
+  set_names(names(.) %>% to_snake_case()) %>%
+  mutate(claim_count = map_int(sev_data, nrow))
+
+modelling1_data_tbl %>% glimpse()
+```
+
+Having constructed the first dataset, we now perform a similar set of
+operations to construct the second set of data.
+
+```{r construct_second_dataset, echo=TRUE}
+modelling2_data_tbl <- freq2_tbl %>%
+  nest_join(sev2_tbl, by = "IDpol", name = "sev_data") %>%
+  set_names(names(.) %>% to_snake_case()) %>%
+  rename(pol_id = i_dpol) %>%
+  mutate(
+    pol_id      = pol_id %>% as.character(),
+    claim_count = map_int(sev_data, nrow)
+    )
+  
+modelling1_data_tbl %>% glimpse()
+```
+
+
+
+# Write to Disk
+
+We now save both datasets to disk.
+
+```{r write_data_to_disk, echo=TRUE}
+modelling1_data_tbl %>% write_rds("data/modelling1_data_tbl.rds")
+
+modelling2_data_tbl %>% write_rds("data/modelling2_data_tbl.rds")
+```

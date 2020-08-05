@@ -33,7 +33,8 @@ full_deps.dot:
 depgraph: full_deps.dot full_deps.png
 
 
-exploring_mtpl_datasets.html: construct_mtpl_datasets.html
+exploring_mtpl1_datasets.html: construct_mtpl_datasets.html
+exploring_mtpl2_datasets.html: construct_mtpl_datasets.html
 
 
 
@@ -46,6 +47,14 @@ clean-html:
 clean-cache:
 	rm -rfv *_cache
 	rm -rfv *_files
+
+mrproper:
+	rm -rfv *.html
+	rm -rfv *.dot
+	rm -rfv *.png
+	rm -rfv *_cache
+	rm -rfv *_files
+	rm -rfv data/*.rds
 
 
 docker-build-image: Dockerfile
