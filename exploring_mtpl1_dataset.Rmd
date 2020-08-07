@@ -114,7 +114,7 @@ hist_bins_count <- 50
 First we load the dataset.
 
 ```{r load_dataset, echo=TRUE}
-rawdata_tbl <- read_rds("data/modelling1_data_tbl.rds")
+rawdata_tbl <- read_rds("data/modelling1_data_tbl.rds") %>% select(-sev_data)
 
 rawdata_tbl %>% glimpse()
 ```
@@ -145,7 +145,7 @@ We now create derived features useful for modelling. These values are
 new variables calculated from existing variables in the data.
 
 ```{r construct_derived_values, echo=FALSE}
-data_tbl <- data_tbl %>% select(-sev_data)
+data_tbl <- data_tbl
 
 data_tbl %>% glimpse()
 ```
@@ -512,7 +512,7 @@ A natural way to explore relationships in data is to create univariate
 visualisations facetted by a categorical value.
 
 ```{r bivariate_facet_data, echo=TRUE}
-facet_varname <- "case_status_simple"
+facet_varname <- "region"
 
 facet_count_max <- 3
 ```

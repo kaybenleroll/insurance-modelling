@@ -105,7 +105,10 @@ freq1_tbl %>% glimpse()
 
 sev1_tbl <- freMTPLsev %>%
   as_tibble() %>%
-  mutate(PolicyID = PolicyID %>% as.character())
+  transmute(
+    PolicyID     = PolicyID %>% as.character(),
+    claim_amount = ClaimAmount
+    )
 
 sev1_tbl %>% glimpse()
 ```
@@ -122,7 +125,10 @@ freq2_tbl %>% glimpse()
 
 sev2_tbl <- freMTPL2sev %>%
   as_tibble() %>%
-  mutate(IDpol = IDpol %>% as.character())
+  transmute(
+    IDpol        = IDpol %>% as.character(),
+    claim_amount = ClaimAmount
+  )
 
 sev2_tbl %>% glimpse()
 ```
@@ -185,11 +191,18 @@ can analyse it.
 
 
 ```{r construct_first_dataset, echo=TRUE}
+total_tbl <- sev1_tbl %>%
+  count(PolicyID, wt = claim_amount, name = "claim_total")
+
 modelling1_data_tbl <- freq1_tbl %>%
   nest_join(sev1_tbl, by = "PolicyID", name = "sev_data") %>%
+  left_join(total_tbl, by = "PolicyID") %>%
   select(-ClaimNb) %>%
   set_names(names(.) %>% to_snake_case()) %>%
-  mutate(claim_count = map_int(sev_data, nrow))
+  mutate(
+    claim_count = map_int(sev_data, nrow)
+    ) %>%
+  replace_na(list(claim_total = 0))
 
 modelling1_data_tbl %>% glimpse()
 ```
@@ -198,16 +211,21 @@ Having constructed the first dataset, we now perform a similar set of
 operations to construct the second set of data.
 
 ```{r construct_second_dataset, echo=TRUE}
+total_tbl <- sev2_tbl %>%
+  count(IDpol, wt = claim_amount, name = "claim_total")
+
 modelling2_data_tbl <- freq2_tbl %>%
   nest_join(sev2_tbl, by = "IDpol", name = "sev_data") %>%
+  left_join(total_tbl, by = "IDpol") %>%
   set_names(names(.) %>% to_snake_case()) %>%
   rename(pol_id = i_dpol) %>%
   mutate(
     pol_id      = pol_id %>% as.character(),
-    claim_count = map_int(sev_data, nrow)
+    claim_count = map_int(sev_data, nrow),
+    veh_power   = veh_power %>% as.character()
     )
   
-modelling1_data_tbl %>% glimpse()
+modelling2_data_tbl %>% glimpse()
 ```
 
 

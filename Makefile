@@ -9,7 +9,7 @@ IMAGE_TAG=${PROJECT_USER}/${PROJECT_NAME}:${PROJECT_LABEL}
 
 RSTUDIO_PORT=8787
 
-CONTAINER_NAME=modelling
+CONTAINER_NAME=carinsmodelling
 
 
 ### Project build targets
@@ -20,6 +20,7 @@ HTML_FILES := $(patsubst %.Rmd,%.html,$(RMD_FILES))
 
 
 all-html: $(HTML_FILES)
+
 
 .Rmd.html:
 	Rscript -e 'rmarkdown::render("$<")'
@@ -33,8 +34,8 @@ full_deps.dot:
 depgraph: full_deps.dot full_deps.png
 
 
-exploring_mtpl1_datasets.html: construct_mtpl_datasets.html
-exploring_mtpl2_datasets.html: construct_mtpl_datasets.html
+exploring_mtpl1_dataset.html: construct_mtpl_datasets.html
+exploring_mtpl2_dataset.html: construct_mtpl_datasets.html
 
 
 
