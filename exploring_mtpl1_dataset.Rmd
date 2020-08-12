@@ -37,6 +37,9 @@ library(fs)
 library(forcats)
 library(snakecase)
 library(lubridate)
+library(glue)
+library(rsample)
+
 
 source("custom_functions.R")
 
@@ -565,13 +568,13 @@ for (plot_varname in numeric_vars) {
     facet_wrap(facet_varname, scales = "free") +
     xlab(plot_varname) +
     ylab("Count") +
-    scale_x_continuous(labels = label_comma()) +
     scale_y_continuous(labels = label_comma()) +
     ggtitle(str_c(facet_varname, "-Faceted Histogram for Variable: ",
                   plot_varname)) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
-  print(explore_plot)
+  print(explore_plot + scale_x_continuous(labels = label_comma()))
+  print(explore_plot + scale_x_log10     (labels = label_comma()))
 }
 ```
 
@@ -601,7 +604,7 @@ for (plot_varname in categorical_vars) {
     scale_y_continuous(labels = label_comma()) +
     ggtitle(str_c(facet_varname, "-Faceted Histogram for Variable: ",
                   plot_varname)) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+    theme(axis.text.x = element_text(angle = 90))
 
   plot(explore_plot)
 }
@@ -641,4 +644,266 @@ rm(plot_var, plot_tbl)
 ```{r, echo=FALSE}
 #knitr::knit_exit()
 ```
+
+
+# Custom Explorations
+
+In this section you can add your own multivariate visualations such as
+boxplots and so on.
+
+
+## Explore Claim Rates
+
+The first parameter we wish to focus on is the *claim rate* - that is, the
+expected count of claims per year:
+
+\[
+\text{Claim Rate} = \frac{\text{Claim Count}}{\text{Time of Exposure}}
+\]
+]
+
+We can calculate this on an aggregated basis having split the data down
+various dimensions. To reduce the amount of copy/paste of code, we construct
+a quick function to produce this.
+
+```{r construct_claimrate_calculator, echo=TRUE}
+calculate_claim_rate <- function(data_tbl, ...) {
+  group_vars <- enquos(...)
+  
+  claimrate_tbl <- data_tbl %>%
+    group_by(!!! group_vars) %>%
+    summarise(
+      .groups = "drop",
+      total_claimcount = sum(claim_count),
+      total_exposure   = sum(exposure),
+      claim_rate       = total_claimcount / total_exposure
+    )
+  
+  return(claimrate_tbl)
+}
+
+```
+
+
+### Calculate Basic Claim Rates
+
+First we look at the overall claim rate for the whole book of business:
+
+```{r overall_claim_rate, echo=TRUE}
+data_tbl %>% calculate_claim_rate()
+```
+
+We now want to start looking at the claim rate by different dimensions.
+
+```{r create_claim_rate_plots, echo=TRUE}
+construct_claimrate_data_plots <- function(label, varname, data_tbl) {
+  segdata_tbl <- data_tbl %>% calculate_claim_rate(!! sym(varname))
+  
+  segdata_plot <- ggplot(segdata_tbl) +
+    geom_col(aes(x = !! sym(varname), y = claim_rate, fill = total_exposure)) +
+    labs(x = label, y = "Claim Rate", fill = "Total Exposure") +
+    expand_limits(y = 0) +
+    scale_fill_continuous(labels = label_comma()) +
+    ggtitle(glue("Claim Rate by {label}"))
+
+  if(varname %in% c("region", "brand")) {
+    segdata_plot <- segdata_plot +
+      theme(axis.text.x = element_text(angle = 90))
+  }
+  
+  return_lst <- list(
+    data_tbl  = segdata_tbl,
+    data_plot = segdata_plot
+  )
+
+  return(return_lst)
+}
+
+
+vardata_tbl <- tribble(
+        ~label,      ~varname,
+       "Power",       "power",
+     "Car Age",     "car_age",
+  "Driver Age",  "driver_age",
+       "Brand",       "brand",
+   "Fuel Type",         "gas",
+      "Region",      "region"
+)
+
+
+claimrate_vardata_tbl <- vardata_tbl %>%
+  mutate(data = map2(label, varname,
+                     construct_claimrate_data_plots,
+                     data_tbl = data_tbl))
+```
+
+Having generated different summary tables and plots, we now want to inspect
+them. A few of them need some tweaking for appeal though.
+
+```{r plot_segmented_claim_rate, echo=TRUE}
+claimrate_vardata_tbl %>% pull(data) %>% .[[1]] %>% .$data_plot %>% print()
+
+claimrate_vardata_tbl %>% pull(data) %>% .[[2]] %>% .$data_plot %>% print()
+
+claimrate_vardata_tbl %>% pull(data) %>% .[[3]] %>% .$data_plot %>% print()
+
+claimrate_vardata_tbl %>% pull(data) %>% .[[4]] %>% .$data_plot %>% print()
+
+claimrate_vardata_tbl %>% pull(data) %>% .[[5]] %>% .$data_plot %>% print()
+
+claimrate_vardata_tbl %>% pull(data) %>% .[[6]] %>% .$data_plot %>% print()
+```
+
+
+Our analysis above calculates a single claim rate for each of the data splits,
+giving us just a single estimate for the claim rate.
+
+This point estimate is useful, but it is better to get an idea of the possible
+range of values consistent with the data observed.
+
+We take two approaches to this problem: we use the bootstrap to get a
+distribution of bootstrap estimates for each claim rate, and we use Bayesian
+analysis to combine prior knowledge of insurance claim rates with the data
+to produce a posterior distribution of the claim rate.
+
+
+### Calculate Bootstrap Claim Rate Estimates
+
+As we will re-use the bootstrap a number of times in this project, I will
+first construct a bootstrap dataset that we can re-use whenever we need it.
+
+```{r construct_bootstrapped_dataset, echo=TRUE}
+bootstrap_index_tbl <- data_tbl %>%
+  bootstraps(times = 200)
+
+bootstrap_index_tbl %>% glimpse()
+```
+
+To save on storage and memory, full replicas of the dataset are not stored in
+this datastructure, but rather than index to each of the rows - we then use
+the `analysis()` function to return the full sample.
+
+Now that we have our bootstrap data to work from, we construct a bootstrap
+distribution of claim rates when segmented by our variables.
+
+
+```{r construct_bootstrap_claimrate_estimates, echo=TRUE}
+construct_bootdata <- ~ claimrate_vardata_tbl %>%
+  mutate(data = map2(label, varname,
+                     construct_claimrate_data_plots,
+                     data_tbl = .x %>% analysis()))
+
+extract_data <- ~ .x %>% mutate(data_tbl = map(data, "data_tbl"))
+
+bootstrap_claimrate_tbl <- bootstrap_index_tbl %>%
+  mutate(boot_data = map(splits, construct_bootdata)) %>%
+  mutate(tmpdata = map(boot_data, extract_data)) %>%
+  select(id, tmpdata) %>%
+  unnest(tmpdata) %>%
+  select(-data) %>%
+  group_nest(label, varname) %>%
+  mutate(newdata = map(data, ~ .x %>% unnest(data_tbl))) %>%
+  select(label, varname, newdata)
+
+
+construct_plot <- function(varname, data_tbl) {
+  data_plot <- ggplot(data_tbl) +
+    geom_boxplot(aes(x = !! sym(varname), y = claim_rate, group = !! sym(varname))) +
+    expand_limits(y = 0) +
+    xlab(varname) +
+    ylab("Claim Rate") +
+    ggtitle(glue("Bootstrap Estimates of the Claim Rate - {varname}"))
+  
+  if(varname %in% c("brand", "region")) {
+    data_plot <- data_plot + theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  }
+
+  return(data_plot)
+}
+
+
+bootstrap_claimrate_tbl %>%
+  mutate(data_plot = map2(varname, newdata, construct_plot)) %>%
+  pull(data_plot)
+```
+
+
+## Explore Region/Density Interaction
+
+We also want to see how the `density` variable in the `region` parameter.
+
+
+```{r explore_region_density, echo=TRUE}
+region_density_plot <- ggplot(data_tbl) +
+  geom_boxplot(aes(x = region, y = density)) +
+  xlab("Region") +
+  ylab("Density") +
+  expand_limits(y = 0) +
+  ggtitle("Boxplot of Density by Region") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+region_density_plot + scale_y_log10     (labels = label_comma())
+region_density_plot + scale_y_continuous(labels = label_comma())
+```
+
+There appears to be a pattern here so we want to look at histograms (both
+standard and log-scale) across the regions.
+
+```{r plot_density_facet_histogram, echo=TRUE}
+hist_plot <- ggplot(data_tbl) +
+  geom_histogram(aes(x = density), bins = 50) +
+  xlab("Density") +
+  ylab("Frequency") +
+  facet_wrap(vars(region), scales = "free") +
+  ggtitle("Facet Plot of Histograms")
+
+hist_plot + scale_x_continuous(labels = label_comma())
+hist_plot + scale_x_log10     (labels = label_comma())
+
+```
+
+
+## Distibution of Claims vs Non-Claims Policy
+
+We also want to investigate whether or not we observe a difference between
+the distribution of variables for policies with or without a claim.
+
+```{r distribution_of_claims_noclaims, echo=TRUE}
+data_tbl <- data_tbl %>% mutate(has_claim = claim_count > 0)
+
+construct_comparison_plot <- function(label, varname) {
+  data_plot <- ggplot(data_tbl) +
+    geom_bar(aes(x = !! sym(varname))) +
+    facet_wrap(vars(has_claim), scales = "free_y", nrow = 2) +
+    scale_y_continuous(label = label_comma()) +
+    labs(x = label, y = "Frequency", fill = "Claims") +
+    ggtitle(glue("Comparison Plot of {label} by Presence of Claim"))
+  
+  if(varname %in% c("brand", "region")) {
+    data_plot <- data_plot + theme(axis.text.x = element_text(angle = 90))
+  }
+  
+  return(data_plot)
+} 
+
+
+vardata_tbl %>%
+  mutate(data_plot = map2(label, varname, construct_comparison_plot)) %>%
+  pull(data_plot)
+
+ggplot(data_tbl) +
+  geom_histogram(aes(x = exposure), bins = 50) +
+  facet_wrap(vars(has_claim), scales = "free_y", nrow = 2) +
+  scale_y_continuous(label = label_comma()) +
+  ggtitle("Comparison Plot of Exposure by Presence of Claim")
+
+ggplot(data_tbl) +
+  geom_histogram(aes(x = density), bins = 50) +
+  facet_wrap(vars(has_claim), scales = "free_y", nrow = 2) +
+  scale_y_continuous(label = label_comma()) +
+  labs(x = "Density", y = "Frequency", fill = "Claims") +
+  ggtitle("Comparison Plot of Density by Presence of Claim")
+
+```
+
 

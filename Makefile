@@ -11,6 +11,12 @@ RSTUDIO_PORT=8787
 
 CONTAINER_NAME=carinsmodelling
 
+### Set GITHUB_USER with 'gh config set gh_user <<user>>'
+GITHUB_USER=$(shell gh config get gh_user)
+GITHUB_PROJECT="MTPL1 Modelling"
+GITHUB_LABEL=modelling
+GITHUB_MILESTONE="Initial Models"
+
 
 ### Project build targets
 .SUFFIXES: .Rmd .html .dot .png
@@ -39,6 +45,15 @@ exploring_mtpl2_dataset.html: construct_mtpl_datasets.html
 
 
 
+gh-create-issue:
+	gh issue create \
+	  --assignee ${GITHUB_USER} \
+	  --project ${GITHUB_PROJECT} \
+	  --label ${GITHUB_LABEL} \
+	  --milestone ${GITHUB_MILESTONE}
+
+
+
 echo-reponame:
 	echo "${REPO_NAME}"
 
@@ -56,6 +71,8 @@ mrproper:
 	rm -rfv *_cache
 	rm -rfv *_files
 	rm -rfv data/*.rds
+
+
 
 
 docker-build-image: Dockerfile
