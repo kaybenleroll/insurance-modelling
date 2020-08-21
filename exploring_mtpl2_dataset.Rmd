@@ -565,13 +565,13 @@ for (plot_varname in numeric_vars) {
     facet_wrap(facet_varname, scales = "free") +
     xlab(plot_varname) +
     ylab("Count") +
-    scale_x_continuous(labels = label_comma()) +
     scale_y_continuous(labels = label_comma()) +
     ggtitle(str_c(facet_varname, "-Faceted Histogram for Variable: ",
                   plot_varname)) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
-  print(explore_plot)
+  print(explore_plot + scale_x_continuous(labels = label_comma()))
+  print(explore_plot + scale_x_log10     (labels = label_comma()))
 }
 ```
 
@@ -641,4 +641,13 @@ rm(plot_var, plot_tbl)
 ```{r, echo=FALSE}
 #knitr::knit_exit()
 ```
+
+
+# Custom Explorations
+
+In this section you can add your own multivariate visualations such as
+boxplots and so on.
+
+
+
 

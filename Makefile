@@ -1,15 +1,23 @@
-DOCKER_USER=rstudio
-DOCKER_UID=$(shell id -u)
-
 PROJECT_USER=kaybenleroll
 PROJECT_NAME=insurance-modelling
 PROJECT_LABEL=latest
 
 IMAGE_TAG=${PROJECT_USER}/${PROJECT_NAME}:${PROJECT_LABEL}
 
+DOCKER_USER=rstudio
+DOCKER_UID=$(shell id -u)
+DOCKER_GID=$(shell id -g)
+
+
 RSTUDIO_PORT=8787
 
 CONTAINER_NAME=carinsmodelling
+
+### Set GITHUB_USER with 'gh config set gh_user <<user>>'
+GITHUB_USER=$(shell gh config get gh_user)
+GITHUB_PROJECT="MTPL1 Modelling"
+GITHUB_LABEL=modelling
+GITHUB_MILESTONE="Initial Models"
 
 
 ### Project build targets
@@ -39,6 +47,15 @@ exploring_mtpl2_dataset.html: construct_mtpl_datasets.html
 
 
 
+gh-create-issue:
+	gh issue create \
+	  --assignee ${GITHUB_USER} \
+	  --project ${GITHUB_PROJECT} \
+	  --label ${GITHUB_LABEL} \
+	  --milestone ${GITHUB_MILESTONE}
+
+
+
 echo-reponame:
 	echo "${REPO_NAME}"
 
@@ -58,6 +75,8 @@ mrproper:
 	rm -rfv data/*.rds
 
 
+
+
 docker-build-image: Dockerfile
 	docker build -t ${IMAGE_TAG} -f Dockerfile .
 
@@ -66,8 +85,9 @@ docker-run:
 	  -p ${RSTUDIO_PORT}:8787 \
 	  -v "${PWD}":"/home/${DOCKER_USER}/${PROJECT_NAME}":rw \
 	  -e USER=${DOCKER_USER} \
-	  -e USERID=${DOCKER_UID} \
 	  -e PASSWORD=quickpass \
+	  -e USERID=${DOCKER_UID} \
+	  -e GROUPID=${DOCKER_GID} \
 	  --name ${CONTAINER_NAME} \
 	  ${IMAGE_TAG}
 

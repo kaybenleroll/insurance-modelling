@@ -6,6 +6,9 @@ RUN apt-get update \
     byobu \
     graphviz \
     less \
+    libgdal26 \
+    libproj15 \
+    libudunits2-0 \
     libxml2-dev \
     zlib1g-dev \
   && apt-get clean \
@@ -15,6 +18,7 @@ RUN apt-get update \
     knitr \
     poweRlaw \
     rprojroot \
+    sf \
     sp \
     sweep \
     xts
