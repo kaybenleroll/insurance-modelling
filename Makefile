@@ -1,11 +1,13 @@
-DOCKER_USER=rstudio
-DOCKER_UID=$(shell id -u)
-
 PROJECT_USER=kaybenleroll
 PROJECT_NAME=insurance-modelling
 PROJECT_LABEL=latest
 
 IMAGE_TAG=${PROJECT_USER}/${PROJECT_NAME}:${PROJECT_LABEL}
+
+DOCKER_USER=rstudio
+DOCKER_UID=$(shell id -u)
+DOCKER_GID=$(shell id -g)
+
 
 RSTUDIO_PORT=8787
 
@@ -83,8 +85,9 @@ docker-run:
 	  -p ${RSTUDIO_PORT}:8787 \
 	  -v "${PWD}":"/home/${DOCKER_USER}/${PROJECT_NAME}":rw \
 	  -e USER=${DOCKER_USER} \
-	  -e USERID=${DOCKER_UID} \
 	  -e PASSWORD=quickpass \
+	  -e USERID=${DOCKER_UID} \
+	  -e GROUPID=${DOCKER_GID} \
 	  --name ${CONTAINER_NAME} \
 	  ${IMAGE_TAG}
 

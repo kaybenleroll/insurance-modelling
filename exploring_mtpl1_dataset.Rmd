@@ -36,9 +36,11 @@ library(vctrs)
 library(fs)
 library(forcats)
 library(snakecase)
+library(stringi)
 library(lubridate)
 library(glue)
 library(rsample)
+library(sf)
 
 
 source("custom_functions.R")
@@ -117,7 +119,9 @@ hist_bins_count <- 50
 First we load the dataset.
 
 ```{r load_dataset, echo=TRUE}
-rawdata_tbl <- read_rds("data/modelling1_data_tbl.rds") %>% select(-sev_data)
+modeldata_tbl <- read_rds("data/modelling1_data_tbl.rds")
+
+rawdata_tbl <- modeldata_tbl %>% select(-sev_data)
 
 rawdata_tbl %>% glimpse()
 ```
@@ -828,9 +832,19 @@ bootstrap_claimrate_tbl %>%
 ```
 
 
-## Explore Region/Density Interaction
+## Explore Density Patterns
 
-We also want to see how the `density` variable in the `region` parameter.
+It appears that the `density` variable captures the population density of the
+residence for the policy holder. Accidents tend to happen in area of higher
+population density as this is where the cars are, so it is worth doing a bit
+of exploration here to see if there is correlation between it and other
+parameters.
+
+
+### Density vs Region
+
+We first look to see how `density` is distributed across the `region` values
+to get an idea of how this works.
 
 
 ```{r explore_region_density, echo=TRUE}
@@ -863,6 +877,27 @@ hist_plot + scale_x_log10     (labels = label_comma())
 ```
 
 
+### Density vs Power
+
+The `power` value for the vehicle is often a risk factor to be accounted for
+so we also want to see how `density` distributes across it.
+
+
+```{r explore_power_density, echo=TRUE}
+power_density_plot <- ggplot(data_tbl) +
+  geom_boxplot(aes(x = power, y = density)) +
+  xlab("Vehicle Power") +
+  ylab("Density") +
+  expand_limits(y = 0) +
+  ggtitle("Boxplot of Density by Vehicle Power") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+power_density_plot + scale_y_log10     (labels = label_comma())
+power_density_plot + scale_y_continuous(labels = label_comma())
+```
+
+
+
 ## Distibution of Claims vs Non-Claims Policy
 
 We also want to investigate whether or not we observe a difference between
@@ -890,20 +925,161 @@ construct_comparison_plot <- function(label, varname) {
 vardata_tbl %>%
   mutate(data_plot = map2(label, varname, construct_comparison_plot)) %>%
   pull(data_plot)
+```
 
+Finally, we have a quick look at how `exposure` differs across the claim-free
+and claim set of policies. This may not be useful from a predictive point of
+view, but it can be relevant in terms of operations and risk management.
+
+
+
+```{r comparison_plot_exposure, echo=TRUE}
 ggplot(data_tbl) +
   geom_histogram(aes(x = exposure), bins = 50) +
   facet_wrap(vars(has_claim), scales = "free_y", nrow = 2) +
   scale_y_continuous(label = label_comma()) +
   ggtitle("Comparison Plot of Exposure by Presence of Claim")
+```
 
-ggplot(data_tbl) +
+Finally, we want to take a look a `density` across the two subsets of the data.
+This may help us check the perceived wisdom of risk increasing for policy
+holders living in areas with more people.
+
+
+```{r comparison_plot_density, echo=TRUE}
+density_plot <- ggplot(data_tbl) +
   geom_histogram(aes(x = density), bins = 50) +
   facet_wrap(vars(has_claim), scales = "free_y", nrow = 2) +
   scale_y_continuous(label = label_comma()) +
   labs(x = "Density", y = "Frequency", fill = "Claims") +
   ggtitle("Comparison Plot of Density by Presence of Claim")
 
+(density_plot + scale_x_continuous(label = label_comma())) %>% plot()
+(density_plot + scale_x_log10     (label = label_comma())) %>% plot()
+```
+
+We do not see a huge difference between these two subsets, though this does
+not disprove that there is a relationship.
+
+
+## Investigate Claim Size
+
+We now turn our attention to the size of the claim and investigate if any of
+the policy variables are predictive of claim size.
+
+```{r construct_claim_data, echo=TRUE}
+claimdata_tbl <- modeldata_tbl %>% unnest(sev_data)
+
+claimdata_tbl %>% glimpse()
+```
+
+We start by constructing a separate table of claim data and perform some
+basic exploration on that.
+
+We start by plotting the total claim size data set as a single distribution.
+
+```{r plot_claim_size, echo=TRUE}
+ggplot(claimdata_tbl) +
+  geom_histogram(aes(x = claim_amount), bins = 50) +
+  labs(x = "Claim Size", y = "Frequency") +
+  scale_x_log10(labels = label_comma()) +
+  ggtitle(glue("Histogram of Claim Size"))
+
+ggplot(claimdata_tbl) +
+  geom_histogram(aes(x = claim_amount, y = cumsum(..count..)), bins = 50) +
+  scale_x_log10(labels = label_comma()) +
+  xlab("Claim Amount") +
+  ylab("Cumulative Frequency") +
+  ggtitle("Cumulative Histogram of the Claim Size")
+
+```
+
+```{r create_claim_size_facet_plot, echo=TRUE}
+facet_vars <- c("power", "brand", "gas", "region", "claim_count")
+
+create_facet_plot <- function(varname, data_tbl) {
+  facet_plot <- ggplot(data_tbl) +
+    geom_histogram(aes(x = claim_amount), bins = 50) +
+    facet_wrap(vars(!! sym(varname)), scales = "free_y") +
+    labs(x = "Claim Size", y = "Frequency") +
+    scale_x_log10(labels = label_comma()) +
+    ggtitle(glue("Histogram of Claim Size Facetted by {varname}"))
+  
+  facet_cuml_plot <- ggplot(data_tbl) +
+    stat_ecdf(aes(x = claim_amount)) +
+    facet_wrap(vars(!! sym(varname)), scales = "free_y", shrink = TRUE) +
+    scale_x_log10(labels = label_comma()) +
+    labs(x = "Claim Size", y = "Cumulative Probability") +
+    ggtitle(glue("Cumulative ECDF of Claim Size Facetted by {varname}"))
+
+  facet_ecdf_plot <- ggplot(data_tbl) +
+    stat_ecdf(aes(x = claim_amount, colour = !! sym(varname))) +
+    scale_x_log10(labels = label_comma()) +
+    labs(x = "Claim Size", y = "Cumulative Probability") +
+    ggtitle(glue("Cumulative ECDF of Claim Size Coloured by {varname}"))
+
+  
+  return(
+    list(
+      hist_plot = facet_plot,
+      cuml_plot = facet_cuml_plot,
+      ecdf_plot = facet_ecdf_plot
+    )
+  )
+}
+
+
+print_plots <- function(x) {
+  x$hist_plot %>% print()
+  x$cuml_plot %>% print()
+  x$ecdf_plot %>% print()
+  
+  cat("---")
+}
+
+
+facet_vars %>%
+  map(create_facet_plot, data_tbl = claimdata_tbl) %>%
+  map(print_plots)
 ```
 
 
+
+## Geospatial Visualisations
+
+We have some geospatial data on the various regions in France, so we need to
+load the shapefiles and then add all region-related data to this to create
+the visualisation plots.
+
+```{r load_shapefile_data, echo=TRUE}
+fra_adm_sf <- st_read("geospatial_data/", layer = "FRA_adm1")
+
+fra_adm_sf %>% plot()
+```
+
+Now that we have loaded the data we redo 
+
+
+```{r append_region_values, echo=TRUE}
+fra_adm_sf <- fra_adm_sf %>%
+  mutate(
+    region = NAME_1 %>%
+      stri_trans_general("LATIN-ASCII") %>%
+      str_replace_all(" ", "-")
+    )
+
+fra_adm_sf %>% glimpse()
+```
+
+We first want to see a plot of the claim rate by region on a choropleth map.
+
+```{r plot_claim_rate_choropleth, echo=TRUE}
+plot_sf <- fra_adm_sf %>%
+  inner_join(data_tbl %>% calculate_claim_rate(region), by = "region")
+
+ggplot(plot_sf) +
+  geom_sf(aes(fill = claim_rate)) +
+  geom_sf_text(aes(label = region)) +
+  labs(fill = "Claim Rate") +
+  theme_void()
+```
