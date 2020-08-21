@@ -37,6 +37,7 @@ library(fs)
 library(forcats)
 library(snakecase)
 library(lubridate)
+library(curl)
 
 library(CASdatasets)
 
@@ -226,6 +227,23 @@ modelling2_data_tbl <- freq2_tbl %>%
     )
   
 modelling2_data_tbl %>% glimpse()
+```
+
+
+# Retrieve Geospatial Data
+
+GADM data licensing does not allow the redistribution of data so the shapefiles
+are not included in this repo and need to be downloaded from the website.
+
+```{r download_france_geospatial_data, echo=TRUE}
+geospatial_data_file <- "geospatial_data/FRA_adm_shp.zip"
+
+if(!file_exists(geospatial_data_file)) {
+  curl_download("https://biogeo.ucdavis.edu/data/gadm2.8/shp/FRA_adm_shp.zip",
+                geospatial_data_file)
+}
+
+unzip(geospatial_data_file, exdir = "geospatial_data")
 ```
 
 
