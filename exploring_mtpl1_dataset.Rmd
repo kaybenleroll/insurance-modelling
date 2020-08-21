@@ -1075,7 +1075,7 @@ We first want to see a plot of the claim rate by region on a choropleth map.
 
 ```{r plot_claim_rate_choropleth, echo=TRUE}
 plot_sf <- fra_adm_sf %>%
-  inner_join(data_tbl %>% calculate_claim_rate(region), by = "region")
+  left_join(data_tbl %>% calculate_claim_rate(region), by = "region")
 
 ggplot(plot_sf) +
   geom_sf(aes(fill = claim_rate)) +
