@@ -187,6 +187,8 @@ freq2_tbl %>% glimpse()
 
 # Construct Datasets
 
+## MTPL1 Data
+
 We now construct our datasets to combine both policy and claim data so we
 can analyse it.
 
@@ -208,6 +210,33 @@ modelling1_data_tbl <- freq1_tbl %>%
 modelling1_data_tbl %>% glimpse()
 ```
 
+
+### Derived Variables
+
+We also want to construct a number of new variables derived from existing
+values in the table.
+
+```{r mtpl1_construct_derived_variables, echo=TRUE}
+modelling1_data_tbl <- modelling1_data_tbl %>%
+  mutate(
+    cat_driver_age = cut(driver_age,
+                         breaks = c(17, 22, 26, 42, 74, Inf),
+                         labels = c("17-22", "23-26", "27-42", "43-74", "75+")),
+    cat_car_age    = cut(car_age,
+                         breaks = c(0, 1, 4, 15, Inf),
+                         labels = c("0-1", "2-4", "5-15", "16+"),
+                         include.lowest = TRUE),
+    cat_density    = cut(density,
+                         breaks = c(0, 40, 200, 500, 4500, Inf),
+                         labels = c("0-40", "41-200", "201-500", "501-4500", "4500+"),
+                         include.lowest = TRUE)
+    )  
+
+```
+
+## MTPL2 Data
+
+
 Having constructed the first dataset, we now perform a similar set of
 operations to construct the second set of data.
 
@@ -228,6 +257,13 @@ modelling2_data_tbl <- freq2_tbl %>%
   
 modelling2_data_tbl %>% glimpse()
 ```
+
+### Derived Variables
+
+As for `MTPL1`, we also construct a number of variables for use in the
+analysis.
+
+
 
 
 # Retrieve Geospatial Data
@@ -257,3 +293,15 @@ modelling1_data_tbl %>% write_rds("data/modelling1_data_tbl.rds")
 
 modelling2_data_tbl %>% write_rds("data/modelling2_data_tbl.rds")
 ```
+
+
+
+
+# R Environment
+
+```{r show_session_info, echo=TRUE, message=TRUE}
+sessioninfo::session_info()
+```
+
+
+

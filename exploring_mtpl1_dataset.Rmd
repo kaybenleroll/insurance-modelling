@@ -650,7 +650,7 @@ rm(plot_var, plot_tbl)
 ```
 
 
-# Custom Explorations
+# Frequency Exploration
 
 In this section you can add your own multivariate visualations such as
 boxplots and so on.
@@ -725,13 +725,16 @@ construct_claimrate_data_plots <- function(label, varname, data_tbl) {
 
 
 vardata_tbl <- tribble(
-        ~label,      ~varname,
-       "Power",       "power",
-     "Car Age",     "car_age",
-  "Driver Age",  "driver_age",
-       "Brand",       "brand",
-   "Fuel Type",         "gas",
-      "Region",      "region"
+                 ~label,         ~varname,
+                "Power",          "power",
+              "Car Age",        "car_age",
+           "Driver Age",     "driver_age",
+                "Brand",          "brand",
+            "Fuel Type",            "gas",
+               "Region",         "region",
+     "Discrete Car Age",    "cat_car_age",
+  "Discrete Driver Age", "cat_driver_age",
+     "Discrete Density",    "cat_car_age"
 )
 
 
@@ -745,17 +748,9 @@ Having generated different summary tables and plots, we now want to inspect
 them. A few of them need some tweaking for appeal though.
 
 ```{r plot_segmented_claim_rate, echo=TRUE}
-claimrate_vardata_tbl %>% pull(data) %>% .[[1]] %>% .$data_plot %>% print()
-
-claimrate_vardata_tbl %>% pull(data) %>% .[[2]] %>% .$data_plot %>% print()
-
-claimrate_vardata_tbl %>% pull(data) %>% .[[3]] %>% .$data_plot %>% print()
-
-claimrate_vardata_tbl %>% pull(data) %>% .[[4]] %>% .$data_plot %>% print()
-
-claimrate_vardata_tbl %>% pull(data) %>% .[[5]] %>% .$data_plot %>% print()
-
-claimrate_vardata_tbl %>% pull(data) %>% .[[6]] %>% .$data_plot %>% print()
+for(i in 1:nrow(claimrate_vardata_tbl)) {
+  claimrate_vardata_tbl %>% pull(data) %>% .[[i]] %>% .$data_plot %>% print()
+}
 ```
 
 
@@ -812,10 +807,10 @@ bootstrap_claimrate_tbl <- bootstrap_index_tbl %>%
 
 construct_plot <- function(varname, data_tbl) {
   data_plot <- ggplot(data_tbl) +
-    geom_boxplot(aes(x = !! sym(varname), y = claim_rate, group = !! sym(varname))) +
+    geom_boxplot(aes(x = !! sym(varname), y = claim_rate,
+                     group = !! sym(varname))) +
     expand_limits(y = 0) +
-    xlab(varname) +
-    ylab("Claim Rate") +
+    labs(x = varname, y = "Claim Rate", fill = "Mean Total Exposure") +
     ggtitle(glue("Bootstrap Estimates of the Claim Rate - {varname}"))
   
   if(varname %in% c("brand", "region")) {
@@ -873,7 +868,6 @@ hist_plot <- ggplot(data_tbl) +
 
 hist_plot + scale_x_continuous(labels = label_comma())
 hist_plot + scale_x_log10     (labels = label_comma())
-
 ```
 
 
@@ -962,6 +956,51 @@ We do not see a huge difference between these two subsets, though this does
 not disprove that there is a relationship.
 
 
+## Geospatial Visualisations
+
+We have some geospatial data on the various regions in France, so we need to
+load the shapefiles and then add all region-related data to this to create
+the visualisation plots.
+
+```{r load_shapefile_data, echo=TRUE}
+fra_adm_sf <- st_read("geospatial_data/", layer = "FRA_adm1")
+
+fra_adm_sf %>% plot()
+```
+
+Now that we have loaded the data we redo 
+
+
+```{r append_region_values, echo=TRUE}
+fra_adm_sf <- fra_adm_sf %>%
+  mutate(
+    region = NAME_1 %>%
+      stri_trans_general("LATIN-ASCII") %>%
+      str_replace_all(" ", "-")
+    )
+
+fra_adm_sf %>% glimpse()
+```
+
+We first want to see a plot of the claim rate by region on a choropleth map.
+
+```{r plot_claim_rate_choropleth, echo=TRUE}
+plot_sf <- fra_adm_sf %>%
+  left_join(data_tbl %>% calculate_claim_rate(region), by = "region")
+
+ggplot(plot_sf) +
+  geom_sf(aes(fill = claim_rate)) +
+  geom_sf_text(aes(label = region)) +
+  labs(fill = "Claim Rate") +
+  theme_void()
+```
+
+
+# Severity Investigation
+
+Having focused solely on the frequency side of the data, we now turn our
+attention to the size of the claims.
+
 ## Investigate Claim Size
 
 We now turn our attention to the size of the claim and investigate if any of
@@ -1044,42 +1083,36 @@ facet_vars %>%
 ```
 
 
+## Investigate Tail Properties
 
-## Geospatial Visualisations
+Severity distributions for liability insurance usually have a heavy right-tail
+- a small number of claims are massive. As a result, we often look to use
+various heavy-tailed distributions such as the Pareto to model these large
+losses.
 
-We have some geospatial data on the various regions in France, so we need to
-load the shapefiles and then add all region-related data to this to create
-the visualisation plots.
-
-```{r load_shapefile_data, echo=TRUE}
-fra_adm_sf <- st_read("geospatial_data/", layer = "FRA_adm1")
-
-fra_adm_sf %>% plot()
+```{r plot_claim_size_alpha_hill_plot, echo=TRUE}
+claimdata_tbl %>%
+  pull(claim_amount) %>%
+  hill(option = "alpha")
 ```
 
-Now that we have loaded the data we redo 
 
 
-```{r append_region_values, echo=TRUE}
-fra_adm_sf <- fra_adm_sf %>%
-  mutate(
-    region = NAME_1 %>%
-      stri_trans_general("LATIN-ASCII") %>%
-      str_replace_all(" ", "-")
-    )
-
-fra_adm_sf %>% glimpse()
+```{r plot_claim_size_xi_hill_plot, echo=TRUE}
+claimdata_tbl %>%
+  pull(claim_amount) %>%
+  hill(option = "xi")
 ```
 
-We first want to see a plot of the claim rate by region on a choropleth map.
 
-```{r plot_claim_rate_choropleth, echo=TRUE}
-plot_sf <- fra_adm_sf %>%
-  left_join(data_tbl %>% calculate_claim_rate(region), by = "region")
 
-ggplot(plot_sf) +
-  geom_sf(aes(fill = claim_rate)) +
-  geom_sf_text(aes(label = region)) +
-  labs(fill = "Claim Rate") +
-  theme_void()
+
+
+
+
+
+# R Environment
+
+```{r show_session_info, echo=TRUE, message=TRUE}
+sessioninfo::session_info()
 ```
