@@ -15,6 +15,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && install2.r --error \
     caTools \
+    evir \
     knitr \
     poweRlaw \
     rprojroot \
