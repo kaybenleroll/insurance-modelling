@@ -73,6 +73,8 @@ mrproper:
 	rm -rfv *_cache
 	rm -rfv *_files
 	rm -rfv data/*.rds
+	rm -rfv geospatial_data/*.zip
+	rm -rfv geospatial_data/FRA_adm*
 
 
 

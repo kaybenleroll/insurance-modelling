@@ -651,3 +651,10 @@ boxplots and so on.
 
 
 
+
+# R Environment
+
+```{r show_session_info, echo=TRUE, message=TRUE}
+sessioninfo::session_info()
+```
+
