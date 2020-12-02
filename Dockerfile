@@ -18,6 +18,7 @@ RUN apt-get update \
     evir \
     knitr \
     poweRlaw \
+    rmdformats \
     rprojroot \
     sf \
     sp \
