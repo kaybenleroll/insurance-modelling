@@ -3,6 +3,11 @@ title: "Construct MTPL Datasets"
 author: "Mick Cooney <mickcooney@gmail.com>"
 date: "`r Sys.Date()`"
 output:
+  rmdformats::readthedown:
+    fig_caption: yes
+    toc_depth: 3
+    use_bookdown: yes
+
   html_document:
     fig_caption: yes
     theme: spacelab
