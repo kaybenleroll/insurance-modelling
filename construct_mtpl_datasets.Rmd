@@ -192,11 +192,14 @@ freq2_tbl %>% glimpse()
 
 # Construct Datasets
 
-## MTPL1 Data
-
 We now construct our datasets to combine both policy and claim data so we
 can analyse it.
 
+
+## MTPL1 Data
+
+We first work on MTPL1 - organise some feature engineering and set up the data
+ready for modelling.
 
 ```{r construct_first_dataset, echo=TRUE}
 total_tbl <- sev1_tbl %>%
@@ -235,12 +238,15 @@ modelling1_data_tbl <- modelling1_data_tbl %>%
                          breaks = c(0, 40, 200, 500, 4500, Inf),
                          labels = c("0-40", "41-200", "201-500", "501-4500", "4500+"),
                          include.lowest = TRUE)
-    )  
+    ) %>%
+  relocate(sev_data, .after = "cat_density")
 
+modelling1_data_tbl %>% glimpse()
 ```
 
-## MTPL2 Data
 
+
+## MTPL2 Data
 
 Having constructed the first dataset, we now perform a similar set of
 operations to construct the second set of data.

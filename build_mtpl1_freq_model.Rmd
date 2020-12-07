@@ -1,0 +1,190 @@
+---
+title: "Build the MTPL1 Frequency Model"
+author: "Mick Cooney <mickcooney@gmail.com>"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    fig_caption: yes
+    toc_depth: 3
+    use_bookdown: yes
+
+  html_document:
+    fig_caption: yes
+    theme: spacelab
+    highlight: pygments
+    number_sections: TRUE
+    toc: TRUE
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: FALSE
+
+  pdf_document: default
+---
+
+
+```{r import_libraries, echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(tidy       = FALSE,
+                      cache      = FALSE,
+                      warning    = FALSE,
+                      message    = FALSE,
+                      fig.height =     8,
+                      fig.width  =    11
+                     )
+
+library(conflicted)
+library(tidyverse)
+library(scales)
+library(cowplot)
+library(magrittr)
+library(rlang)
+library(glue)
+library(purrr)
+library(furrr)
+library(rsample)
+library(rstan)
+library(rstanarm)
+library(posterior)
+library(bayesplot)
+library(tidybayes)
+
+
+source("custom_functions.R")
+
+resolve_conflicts(
+  c("magrittr", "rlang", "dplyr", "readr", "purrr", "ggplot2", "rsample")
+  )
+
+
+options(width = 80L,
+        warn  = 1,
+        mc.cores = parallel::detectCores()
+        )
+
+theme_set(theme_cowplot())
+
+set.seed(42)
+stan_seed <- 4242
+```
+
+In this workbook we switch our attention to building a frequency model for the
+claims data. We build a number of different models and compare them in terms of
+both accuracy (estimate of the mean), and precision (estimate of the
+variance/dispersion).
+
+All of our modelling is done within a Bayesian context, so rather than
+estimating a single set of parameters for our model we instead estimate the
+posterior distribution of the joint distribution of the parameters given the
+observed data.
+
+We use prior predictive checks to set our priors and then use Monte Carlo
+simulation and posterior predictive checks to assess the quality of the various
+models.
+
+
+# Data and Setup
+
+Before we do any modelling we need to load our data. Data exploration and
+various data cleaning etc has been performed in a previous workbook, so we
+simply load the data as-is.
+
+It may be necessary to perform some simple feature engineering, but this is
+part of the modelling process so we will instead do that here as it is an
+intrinsic part of the modelling process in most cases.
+
+```{r load_mtpl1_dataset, echo=TRUE}
+modelling1_data_tbl <- read_rds("data/modelling1_data_tbl.rds")
+
+modelling1_data_tbl %>% glimpse()
+```
+
+This dataset will be the basis for all our subsequent work with the MTPL1 data.
+
+For the purposes of effective model validation we need to construct a
+"hold out" or *testing* set. We subset the data now and do not investigate or
+check this data till we have final models we wish to work with.
+
+The size of this hold-out set is a matter of discussion, and is a trade-off
+between ensuring enough data for modelling, but also ensuring the test set is
+large enough to test the final models.
+
+We sample this data at random for now, and take hold out 20% of it.
+
+```{r construct_mtpl1_train_holdout, echo=TRUE}
+mtpl1_split <- modelling1_data_tbl %>% initial_split(prop = 0.8)
+
+mtpl1_training_tbl <- mtpl1_split %>% training()
+mtpl1_training_tbl %>% glimpse()
+
+mtpl1_testing_tbl  <- mtpl1_split %>% testing()
+mtpl1_testing_tbl %>% glimpse()
+```
+
+
+
+# Our First Frequency Model
+
+We start with a simple frequency model for the car insurance data, using prior
+predictive checks to the set our prior parameters. The first time we do this
+we will discuss this in more detail to explain the method and what we are
+trying to achieve. Once we are happy with our prior model we then switch to
+conditioning it on the data - check the *posterior shrinkage* and estimation
+of how informative our data has been on the model, and then use the output to
+guide our work.
+
+
+## Constructing Our Prior Model
+
+We start by building a simple model with a small number of parameters. Going
+by our previous data exploration, we use `gas` and `cat_driver_age`. Later
+models will use a smoothed predictor for our continuous variables where there
+is a nonlinear effect, but for now we focus on the discretisations of those
+variables for simplicity.
+
+In formula notation, our model will look something like this:
+
+```
+claim_count ~ gas + cat_driver_age
+```
+
+Since `claim_count` is a count variable we will use some form of count
+regression: either Poisson or Negative Binomial, and will will try both.
+
+Our idea is to have our parameters vary on a unit scale, and so Normal priors
+should be fine. This leaves the intercept, so we start with a Normal prior here
+also and see what the effect is.
+
+### Our First Prior Model
+
+We use the `rstanarm` package to fit this model - this allow us to use standard
+R model notation and formula in a Bayesian context, and avoids us the tedious
+of work of having to write out the full Stan code for this problem.
+
+To fit from the prior predictive rather than conditioning on the data, the
+model will not add the observed data and simply fit from the priors.
+
+```{r fit_first_prior_model, echo=TRUE}
+fit_model_tbl <- modelling1_data_tbl %>% select(-sev_data)
+
+mtpl1_freq1_prior_stanreg <- stan_glm(
+    claim_count ~ gas + cat_driver_age,
+    family   = poisson(),
+    data     = fit_model_tbl,
+    offset   = log(exposure),
+    iter     = 1000,
+    chains   = 8,
+    QR       = TRUE,
+    prior    = normal(location = 0, scale = 1),
+    prior_PD = TRUE,
+    seed     = stan_seed
+    )
+
+
+```
+
+
+
+# R Environment
+
+```{r show_session_info, echo=TRUE, message=TRUE}
+sessioninfo::session_info()
+```

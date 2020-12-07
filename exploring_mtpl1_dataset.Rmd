@@ -671,7 +671,7 @@ expected count of claims per year:
 \[
 \text{Claim Rate} = \frac{\text{Claim Count}}{\text{Time of Exposure}}
 \]
-]
+
 
 We can calculate this on an aggregated basis having split the data down
 various dimensions. To reduce the amount of copy/paste of code, we construct
