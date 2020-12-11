@@ -46,6 +46,7 @@ library(rstanarm)
 library(posterior)
 library(bayesplot)
 library(tidybayes)
+library(DT)
 
 
 source("custom_functions.R")
@@ -61,6 +62,8 @@ options(width = 80L,
         )
 
 theme_set(theme_cowplot())
+
+rstan_options(auto_write = TRUE)
 
 set.seed(42)
 stan_seed <- 4242
@@ -163,7 +166,7 @@ To fit from the prior predictive rather than conditioning on the data, the
 model will not add the observed data and simply fit from the priors.
 
 ```{r fit_first_prior_model, echo=TRUE}
-fit_model_tbl <- modelling1_data_tbl %>% select(-sev_data)
+fit_model_tbl <- mtpl1_training_tbl %>% select(-sev_data)
 
 mtpl1_freq1_prior_stanreg <- stan_glm(
     claim_count ~ gas + cat_driver_age,
@@ -171,16 +174,209 @@ mtpl1_freq1_prior_stanreg <- stan_glm(
     data     = fit_model_tbl,
     offset   = log(exposure),
     iter     = 1000,
-    chains   = 8,
+    chains   = 4,
     QR       = TRUE,
     prior    = normal(location = 0, scale = 1),
     prior_PD = TRUE,
     seed     = stan_seed
     )
 
-
+mtpl1_freq1_prior_stanreg %>% glimpse()
 ```
 
+We do not need to look at the whole dataset for the purposes of calibrating
+our priors, so we take a subsample of that data to help us build our priors
+using the `generated quantities` feature in Stan to generate a sample count of
+policies for each of the iterations in the posterior sample.
+
+```{r construct_prior_predictive_data, echo=TRUE}
+n_sample <- 250
+
+priorpred_data_tbl <- fit_model_tbl %>%
+  slice_sample(n = n_sample)
+
+priorpred_data_tbl %>% glimpse()
+```
+
+We now use this data to generate simulations of counts.
+
+```{r construct_prior_predictive_sample, echo=TRUE}
+priorpred_freq1_tbl <- priorpred_data_tbl %>%
+  add_predicted_draws(
+    model      = mtpl1_freq1_prior_stanreg,
+    offset     = rep(1, n_sample),
+    prediction = "sim_count"
+    ) %>%
+  ungroup()
+
+priorpred_freq1_tbl %>% glimpse()
+```
+
+We then produce some summary statistics of these counts, and compare those to
+our domain knowledge of what is possible in the real world. We use this to
+tweak our priors in a principled way.
+
+```{r freq1_calculate_prior_predict_summaries, echo=TRUE}
+priorpred_freq1_summary_tbl <- priorpred_freq1_tbl %>%
+  group_by(.row) %>%
+  summarise(
+    .groups = "drop",
+
+    count_max      = max(sim_count),
+    count_mean     = mean(sim_count),
+    count_zeroprop = sum(sim_count == 0) / n(),
+    count_p10      = quantile(sim_count, 0.10),
+    count_p25      = quantile(sim_count, 0.25),
+    count_p50      = median(sim_count),
+    count_p75      = quantile(sim_count, 0.75),
+    count_p90      = quantile(sim_count, 0.90)
+    )
+
+priorpred_freq1_summary_tbl %>% glimpse()
+```
+
+We will output this as a table to HTML to allow for proper inspection.
+
+```{r plot_table_as_dt, echo=TRUE}
+priorpred_freq1_summary_tbl %>% datatable(rownames = FALSE)
+```
+
+We see we need to make changes to these priors as we end up with claim counts
+that are massively in excess of any feasible number. We expect inputs to the
+model to have both positive and negative effects on the claim count, and so
+we focus on the prior for the intercept - shifting the mean much lower.
+
+
+### A Second Prior Model
+
+Our second prior model is similar to the first one, but with the prior on the
+intercept set at a mean of -4 - thus reducing the 'baseline' claim rate.
+
+```{r fit_second_prior_model, echo=TRUE}
+mtpl1_freq1_prior2_stanreg <- stan_glm(
+    claim_count ~ gas + cat_driver_age,
+    family   = poisson(),
+    data     = fit_model_tbl,
+    offset   = log(exposure),
+    iter     = 1000,
+    chains   = 4,
+    QR       = TRUE,
+    prior_PD = TRUE,
+    seed     = stan_seed,
+    prior_intercept = normal(location = -4, scale = 1),
+    prior           = normal(location =  0, scale = 1)
+    )
+
+priorpred_freq1_summary_tbl <- priorpred_data_tbl %>%
+  add_predicted_draws(
+    model      = mtpl1_freq1_prior2_stanreg,
+    offset     = rep(1, n_sample),
+    prediction = "sim_count"
+    ) %>%
+  ungroup() %>%
+  group_by(.row) %>%
+  summarise(
+    .groups = "drop",
+
+    count_max      = max(sim_count),
+    count_mean     = mean(sim_count),
+    count_zeroprop = sum(sim_count == 0) / n(),
+    count_p10      = quantile(sim_count, 0.10),
+    count_p25      = quantile(sim_count, 0.25),
+    count_p50      = median(sim_count),
+    count_p75      = quantile(sim_count, 0.75),
+    count_p90      = quantile(sim_count, 0.90)
+    )
+
+priorpred_freq1_summary_tbl %>% glimpse()
+```
+
+We look at these summaries as before.
+
+```{r plot_new_table_as_dt, echo=TRUE}
+priorpred_freq1_summary_tbl %>% datatable(rownames = FALSE)
+```
+
+This looks much better - though the values of `count_max` may be a little
+small, so we produce a histogram of those values as a check.
+
+```{r plot_priorpred_count_max_histogram, echo=TRUE}
+ggplot(priorpred_freq1_summary_tbl) +
+  geom_histogram(aes(x = count_max), binwidth = 1) +
+  xlab("Maximum Number of Claims") +
+  ylab("Count Frequency") +
+  ggtitle("Histogram of Maximum Counts of Claims")
+```
+
+As suspected, these numbers as a bit of the low side - individual policies
+could have claim counts in the double digits. High risk policies sometimes
+have 20 or even 30 claims on them in a given year. These counts are unlikely
+but certainly possible, so our priors should allow for this.
+
+
+### Building a Better Approach
+
+We can see that this approach to getting suitable priors might take a number
+of different attempts, so rather than build it piece by piece we instead
+construct a function that sets the priors and calculates the summary statistics
+of interesting from the prior predictive distribution. This should help us
+decide on the priors we use for the model.
+
+```{r fit_third_prior_model, echo=TRUE}
+calculate_priorpred_summary_stats <- function(prior_mean, prior_sd,
+                                              intcpt_mean, intcpt_sd,
+                                              priorpred_data_tbl) {
+
+  n_sample <- priorpred_data_tbl %>% nrow()
+  
+  priorpred_freq_summary_tbl <- stan_glm(
+      claim_count ~ gas + cat_driver_age,
+      family   = poisson(),
+      data     = fit_model_tbl,
+      offset   = log(exposure),
+      iter     = 1000,
+      chains   = 4,
+      QR       = TRUE,
+      prior_PD = TRUE,
+      seed     = stan_seed,
+      prior_intercept = normal(location = prior_mean,  scale = prior_sd),
+      prior           = normal(location = intcpt_mean, scale = intcpt_sd)
+      ) %>%
+    predicted_draws(
+      newdata    = priorpred_data_tbl,
+      offset     = rep(1, n_sample),
+      prediction = "sim_count"
+      ) %>%
+    ungroup() %>%
+    group_by(.row) %>%
+    summarise(
+      .groups = "drop",
+  
+      count_max      = max(sim_count),
+      count_mean     = mean(sim_count),
+      count_zeroprop = sum(sim_count == 0) / n(),
+      count_p10      = quantile(sim_count, 0.10),
+      count_p25      = quantile(sim_count, 0.25),
+      count_p50      = median(sim_count),
+      count_p75      = quantile(sim_count, 0.75),
+      count_p90      = quantile(sim_count, 0.90)
+      )
+
+  return(priorpred_freq_summary_tbl)
+}
+
+
+prior_pred_params_tbl <- tribble(
+  ~p_m,    ~p_s,    ~i_m,    ~i_s,
+   0.0,     1.0,    -4.0,     1.0,
+   0.0,     1.0,    -4.0,     1.5,
+   0.0,     1.0,    -4.0,     2.0,
+   0.0,     1.0,    -5.0,     1.0,
+   0.0,     1.0,    -5.0,     1.5,
+   0.0,     1.0,    -5.0,     2.0,
+)
+
+```
 
 
 # R Environment
