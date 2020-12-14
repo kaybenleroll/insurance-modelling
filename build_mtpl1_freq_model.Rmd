@@ -190,7 +190,7 @@ using the `generated quantities` feature in Stan to generate a sample count of
 policies for each of the iterations in the posterior sample.
 
 ```{r construct_prior_predictive_data, echo=TRUE}
-n_sample <- 250
+n_sample <- 100
 
 priorpred_data_tbl <- fit_model_tbl %>%
   slice_sample(n = n_sample)
@@ -202,19 +202,19 @@ We now use this data to generate simulations of counts.
 
 ```{r construct_prior_predictive_sample, echo=TRUE}
 priorpred_freq1_tbl <- priorpred_data_tbl %>%
-  add_predicted_draws(
-    model      = mtpl1_freq1_prior_stanreg,
-    offset     = rep(1, n_sample),
-    prediction = "sim_count"
+  add_linpred_draws(
+    model  = mtpl1_freq1_prior_stanreg,
+    offset = rep(1, n_sample),
+    value  = "freq_mean"
     ) %>%
   ungroup()
 
 priorpred_freq1_tbl %>% glimpse()
 ```
 
-We then produce some summary statistics of these counts, and compare those to
-our domain knowledge of what is possible in the real world. We use this to
-tweak our priors in a principled way.
+We then produce some summary statistics of these count frequencies, comparing
+those to our domain knowledge of what is possible in the real world. We use
+this to tweak our priors in a principled way.
 
 ```{r freq1_calculate_prior_predict_summaries, echo=TRUE}
 priorpred_freq1_summary_tbl <- priorpred_freq1_tbl %>%
@@ -222,14 +222,15 @@ priorpred_freq1_summary_tbl <- priorpred_freq1_tbl %>%
   summarise(
     .groups = "drop",
 
-    count_max      = max(sim_count),
-    count_mean     = mean(sim_count),
-    count_zeroprop = sum(sim_count == 0) / n(),
-    count_p10      = quantile(sim_count, 0.10),
-    count_p25      = quantile(sim_count, 0.25),
-    count_p50      = median(sim_count),
-    count_p75      = quantile(sim_count, 0.75),
-    count_p90      = quantile(sim_count, 0.90)
+    freqmean_min  = min(freq_mean),
+    freqmean_p10  = quantile(freq_mean, 0.10),
+    freqmean_p25  = quantile(freq_mean, 0.25),
+    freqmean_p50  = quantile(freq_mean, 0.50),
+    freqmean_p75  = quantile(freq_mean, 0.75),
+    freqmean_p90  = quantile(freq_mean, 0.90),
+    freqmean_max  = max(freq_mean),
+    freqmean_mean = mean(freq_mean),
+    freqmean_sd   = sd(freq_mean)
     )
 
 priorpred_freq1_summary_tbl %>% glimpse()
@@ -268,24 +269,25 @@ mtpl1_freq1_prior2_stanreg <- stan_glm(
     )
 
 priorpred_freq1_summary_tbl <- priorpred_data_tbl %>%
-  add_predicted_draws(
-    model      = mtpl1_freq1_prior2_stanreg,
-    offset     = rep(1, n_sample),
-    prediction = "sim_count"
+  add_linpred_draws(
+    model  = mtpl1_freq1_prior2_stanreg,
+    offset = rep(1, n_sample),
+    value  = "freq_mean"
     ) %>%
   ungroup() %>%
   group_by(.row) %>%
   summarise(
     .groups = "drop",
 
-    count_max      = max(sim_count),
-    count_mean     = mean(sim_count),
-    count_zeroprop = sum(sim_count == 0) / n(),
-    count_p10      = quantile(sim_count, 0.10),
-    count_p25      = quantile(sim_count, 0.25),
-    count_p50      = median(sim_count),
-    count_p75      = quantile(sim_count, 0.75),
-    count_p90      = quantile(sim_count, 0.90)
+    freqmean_min  = min(freq_mean),
+    freqmean_p10  = quantile(freq_mean, 0.10),
+    freqmean_p25  = quantile(freq_mean, 0.25),
+    freqmean_p50  = quantile(freq_mean, 0.50),
+    freqmean_p75  = quantile(freq_mean, 0.75),
+    freqmean_p90  = quantile(freq_mean, 0.90),
+    freqmean_max  = max(freq_mean),
+    freqmean_mean = mean(freq_mean),
+    freqmean_sd   = sd(freq_mean)
     )
 
 priorpred_freq1_summary_tbl %>% glimpse()
@@ -297,12 +299,12 @@ We look at these summaries as before.
 priorpred_freq1_summary_tbl %>% datatable(rownames = FALSE)
 ```
 
-This looks much better - though the values of `count_max` may be a little
+This looks much better - though the values of `freqmean_max` may be a little
 small, so we produce a histogram of those values as a check.
 
-```{r plot_priorpred_count_max_histogram, echo=TRUE}
+```{r plot_priorpred_freqmean_max_histogram, echo=TRUE}
 ggplot(priorpred_freq1_summary_tbl) +
-  geom_histogram(aes(x = count_max), binwidth = 1) +
+  geom_histogram(aes(x = freqmean_max), binwidth = 1) +
   xlab("Maximum Number of Claims") +
   ylab("Count Frequency") +
   ggtitle("Histogram of Maximum Counts of Claims")
@@ -324,8 +326,9 @@ decide on the priors we use for the model.
 
 ```{r fit_third_prior_model, echo=TRUE}
 calculate_priorpred_summary_stats <- function(prior_mean, prior_sd,
-                                              intcpt_mean, intcpt_sd,
-                                              priorpred_data_tbl) {
+                                              incpt_mean, incpt_sd,
+                                              priorpred_data_tbl,
+                                              autoscale = TRUE) {
 
   n_sample <- priorpred_data_tbl %>% nrow()
   
@@ -339,44 +342,98 @@ calculate_priorpred_summary_stats <- function(prior_mean, prior_sd,
       QR       = TRUE,
       prior_PD = TRUE,
       seed     = stan_seed,
-      prior_intercept = normal(location = prior_mean,  scale = prior_sd),
-      prior           = normal(location = intcpt_mean, scale = intcpt_sd)
+      prior_intercept = normal(location = prior_mean, scale = prior_sd, autoscale = autoscale),
+      prior           = normal(location = incpt_mean, scale = incpt_sd, autoscale = autoscale)
       ) %>%
-    predicted_draws(
-      newdata    = priorpred_data_tbl,
-      offset     = rep(1, n_sample),
-      prediction = "sim_count"
+    linpred_draws(
+      newdata = priorpred_data_tbl,
+      offset  = rep(1, n_sample),
+      value   = "freq_mean"
       ) %>%
     ungroup() %>%
     group_by(.row) %>%
     summarise(
       .groups = "drop",
   
-      count_max      = max(sim_count),
-      count_mean     = mean(sim_count),
-      count_zeroprop = sum(sim_count == 0) / n(),
-      count_p10      = quantile(sim_count, 0.10),
-      count_p25      = quantile(sim_count, 0.25),
-      count_p50      = median(sim_count),
-      count_p75      = quantile(sim_count, 0.75),
-      count_p90      = quantile(sim_count, 0.90)
+    freqmean_min  = min(freq_mean),
+    freqmean_p10  = quantile(freq_mean, 0.10),
+    freqmean_p25  = quantile(freq_mean, 0.25),
+    freqmean_p50  = quantile(freq_mean, 0.50),
+    freqmean_p75  = quantile(freq_mean, 0.75),
+    freqmean_p90  = quantile(freq_mean, 0.90),
+    freqmean_max  = max(freq_mean),
+    freqmean_mean = mean(freq_mean),
+    freqmean_sd   = sd(freq_mean)
       )
 
   return(priorpred_freq_summary_tbl)
 }
 
 
-prior_pred_params_tbl <- tribble(
-  ~p_m,    ~p_s,    ~i_m,    ~i_s,
-   0.0,     1.0,    -4.0,     1.0,
-   0.0,     1.0,    -4.0,     1.5,
-   0.0,     1.0,    -4.0,     2.0,
-   0.0,     1.0,    -5.0,     1.0,
-   0.0,     1.0,    -5.0,     1.5,
-   0.0,     1.0,    -5.0,     2.0,
-)
+priorpred_priorparams_tbl <- tribble(
+    ~p_m,    ~p_s,    ~i_m,    ~i_s,  ~autoscale,
+     0.0,     0.5,    -7.0,     0.5,        TRUE,
+     0.0,     0.5,    -7.0,     1.0,        TRUE,
+     0.0,     0.5,    -7.0,     1.5,        TRUE,
+     0.0,     0.5,    -7.0,     2.0,        TRUE,
+     0.0,     1.0,    -7.0,     0.5,        TRUE,
+     0.0,     1.0,    -7.0,     1.0,        TRUE,
+     0.0,     1.0,    -7.0,     1.5,        TRUE,
+     0.0,     1.0,    -7.0,     2.0,        TRUE,
+     0.0,     0.5,    -7.0,     0.5,       FALSE,
+     0.0,     0.5,    -7.0,     1.0,       FALSE,
+     0.0,     0.5,    -7.0,     1.5,       FALSE,
+     0.0,     0.5,    -7.0,     2.0,       FALSE,
+     0.0,     1.0,    -7.0,     0.5,       FALSE,
+     0.0,     1.0,    -7.0,     1.0,       FALSE,
+     0.0,     1.0,    -7.0,     1.5,       FALSE,
+     0.0,     1.0,    -7.0,     2.0,       FALSE,
+     0.0,     0.5,    -5.0,     0.5,        TRUE,
+     0.0,     0.5,    -5.0,     1.0,        TRUE,
+     0.0,     0.5,    -5.0,     1.5,        TRUE,
+     0.0,     0.5,    -5.0,     2.0,        TRUE,
+     0.0,     1.0,    -5.0,     0.5,        TRUE,
+     0.0,     1.0,    -5.0,     1.0,        TRUE,
+     0.0,     1.0,    -5.0,     1.5,        TRUE,
+     0.0,     1.0,    -5.0,     2.0,        TRUE,
+     0.0,     0.5,    -5.0,     0.5,       FALSE,
+     0.0,     0.5,    -5.0,     1.0,       FALSE,
+     0.0,     0.5,    -5.0,     1.5,       FALSE,
+     0.0,     0.5,    -5.0,     2.0,       FALSE,
+     0.0,     1.0,    -5.0,     0.5,       FALSE,
+     0.0,     1.0,    -5.0,     1.0,       FALSE,
+     0.0,     1.0,    -5.0,     1.5,       FALSE,
+     0.0,     1.0,    -5.0,     2.0,       FALSE,
+    ) %>%
+  mutate(prior_id = 1:n(), .before = 1)
 
+
+priorpred_summary_tbl <- priorpred_priorparams_tbl %>%
+  mutate(
+    prior_data = pmap(
+      list(prior_mean = p_m,
+           prior_sd   = p_s,
+           incpt_mean = i_m,
+           incpt_sd   = i_s,
+           autoscale  = autoscale),
+      calculate_priorpred_summary_stats,
+      priorpred_data_tbl = priorpred_data_tbl
+      )
+    )
+
+priorpred_summary_tbl %>% glimpse()
 ```
+
+
+```{r create_priorpred_mean_boxplots, echo=TRUE}
+priorpred_summary_tbl %>%
+  unnest(prior_data) %>%
+  ggplot(.) +
+    geom_boxplot(aes(x = prior_id, group = prior_id, y = freqmean_mean)) +
+    scale_y_log10()
+```
+
+
 
 
 # R Environment
