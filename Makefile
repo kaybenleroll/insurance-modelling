@@ -44,7 +44,7 @@ depgraph: full_deps.dot full_deps.png
 
 exploring_mtpl1_dataset.html: construct_mtpl_datasets.html
 exploring_mtpl2_dataset.html: construct_mtpl_datasets.html
-
+build_mtpl1_freq_model.html: exploring_mtpl1_dataset.html
 
 
 gh-create-issue:

@@ -192,16 +192,16 @@ policies for each of the iterations in the posterior sample.
 ```{r construct_prior_predictive_data, echo=TRUE}
 n_sample <- 100
 
-priorpred_data_tbl <- fit_model_tbl %>%
+priorpred_input_tbl <- fit_model_tbl %>%
   slice_sample(n = n_sample)
 
-priorpred_data_tbl %>% glimpse()
+priorpred_input_tbl %>% glimpse()
 ```
 
 We now use this data to generate simulations of counts.
 
 ```{r construct_prior_predictive_sample, echo=TRUE}
-priorpred_freq1_tbl <- priorpred_data_tbl %>%
+priorpred_freq1_tbl <- priorpred_input_tbl %>%
   add_linpred_draws(
     model  = mtpl1_freq1_prior_stanreg,
     offset = rep(1, n_sample),
@@ -268,7 +268,7 @@ mtpl1_freq1_prior2_stanreg <- stan_glm(
     prior           = normal(location =  0, scale = 1)
     )
 
-priorpred_freq1_summary_tbl <- priorpred_data_tbl %>%
+priorpred_freq1_summary_tbl <- priorpred_input_tbl %>%
   add_linpred_draws(
     model  = mtpl1_freq1_prior2_stanreg,
     offset = rep(1, n_sample),
@@ -324,14 +324,15 @@ construct a function that sets the priors and calculates the summary statistics
 of interesting from the prior predictive distribution. This should help us
 decide on the priors we use for the model.
 
-```{r fit_third_prior_model, echo=TRUE}
+```{r construct_prior_model_functions, echo=TRUE}
 calculate_priorpred_model <- function(prior_mean, prior_sd,
                                       incpt_mean, incpt_sd,
                                       autoscale,
+                                      fit_formula,
                                       fit_model_tbl) {
 
   priorpred_freqmodel_stanreg <- stan_glm(
-      claim_count ~ gas + cat_driver_age,
+      fit_formula,
       family   = poisson(),
       data     = fit_model_tbl,
       offset   = log(exposure),
@@ -340,27 +341,34 @@ calculate_priorpred_model <- function(prior_mean, prior_sd,
       QR       = TRUE,
       prior_PD = TRUE,
       seed     = stan_seed,
-      prior_intercept = normal(location = prior_mean, scale = prior_sd, autoscale = autoscale),
-      prior           = normal(location = incpt_mean, scale = incpt_sd, autoscale = autoscale)
+      prior_intercept = normal(location = incpt_mean, scale = incpt_sd, autoscale = autoscale),
+      prior           = normal(location = prior_mean, scale = prior_sd, autoscale = autoscale)
       )
   
   return(priorpred_freqmodel_stanreg)
 }
 
 
-calculate_priorpred_summary <- function(priorpred_stanreg,
-                                        priorpred_data_tbl) {
+calculate_priorpred_freqmean <- function(priorpred_stanreg,
+                                         priorpred_input_tbl) {
   
-  n_sample <- priorpred_data_tbl %>% nrow()
+  n_sample <- priorpred_input_tbl %>% nrow()
   
-  priorpred_summary_stats_tbl <- priorpred_stanreg %>%
+  priorpred_freqmean_tbl <- priorpred_stanreg %>%
     add_linpred_draws(
-      newdata = priorpred_data_tbl,
+      newdata = priorpred_input_tbl,
       offset  = rep(1, n_sample),
       value   = "freq_mean"
       ) %>%
     ungroup() %>%
-    group_by(.row) %>%
+    select(policy_id, .row, .draw, freq_mean)
+  
+  return(priorpred_freqmean_tbl)
+}
+
+
+calculate_data_summary <- function(data_tbl) {
+  summary_tbl <- data_tbl %>%
     summarise(
       .groups = "drop",
   
@@ -375,33 +383,34 @@ calculate_priorpred_summary <- function(priorpred_stanreg,
       freqmean_mean = mean(freq_mean),
       freqmean_sd   = sd(freq_mean)
       )
-  
-  return(priorpred_summary_stats_tbl)
+
+  return(summary_tbl)
 }
+```
 
 
-
+```{r construct_prior_first_model_system, echo=TRUE, cache=TRUE, cache.lazy=FALSE}
 priorpred_priorparams_tbl <- tribble(
     ~p_m,    ~p_s,    ~i_m,    ~i_s,    ~a_s,
-     0.0,     0.5,    -7.0,     0.5,    TRUE,
-     0.0,     0.5,    -7.0,     1.0,    TRUE,
-     0.0,     0.5,    -7.0,     1.5,    TRUE,
-     0.0,     0.5,    -7.0,     2.0,    TRUE,
+     0.0,     0.5,    -6.0,     0.5,    TRUE,
+     0.0,     0.5,    -6.0,     1.0,    TRUE,
+     0.0,     0.5,    -6.0,     1.5,    TRUE,
+     0.0,     0.5,    -6.0,     2.0,    TRUE,
 
-     0.0,     0.5,    -7.0,     0.5,   FALSE,
-     0.0,     0.5,    -7.0,     1.0,   FALSE,
-     0.0,     0.5,    -7.0,     1.5,   FALSE,
-     0.0,     0.5,    -7.0,     2.0,   FALSE,
+     0.0,     0.5,    -6.0,     0.5,   FALSE,
+     0.0,     0.5,    -6.0,     1.0,   FALSE,
+     0.0,     0.5,    -6.0,     1.5,   FALSE,
+     0.0,     0.5,    -6.0,     2.0,   FALSE,
 
-     0.0,     1.0,    -7.0,     0.5,    TRUE,
-     0.0,     1.0,    -7.0,     1.0,    TRUE,
-     0.0,     1.0,    -7.0,     1.5,    TRUE,
-     0.0,     1.0,    -7.0,     2.0,    TRUE,
+     0.0,     1.0,    -6.0,     0.5,    TRUE,
+     0.0,     1.0,    -6.0,     1.0,    TRUE,
+     0.0,     1.0,    -6.0,     1.5,    TRUE,
+     0.0,     1.0,    -6.0,     2.0,    TRUE,
 
-     0.0,     1.0,    -7.0,     0.5,   FALSE,
-     0.0,     1.0,    -7.0,     1.0,   FALSE,
-     0.0,     1.0,    -7.0,     1.5,   FALSE,
-     0.0,     1.0,    -7.0,     2.0,   FALSE,
+     0.0,     1.0,    -6.0,     0.5,   FALSE,
+     0.0,     1.0,    -6.0,     1.0,   FALSE,
+     0.0,     1.0,    -6.0,     1.5,   FALSE,
+     0.0,     1.0,    -6.0,     2.0,   FALSE,
 
      0.0,     0.5,    -5.0,     0.5,    TRUE,
      0.0,     0.5,    -5.0,     1.0,    TRUE,
@@ -426,7 +435,7 @@ priorpred_priorparams_tbl <- tribble(
   mutate(prior_id = 1:n(), .before = 1)
 
 
-priorpred_summary_tbl <- priorpred_priorparams_tbl %>%
+priorpred1_data_tbl <- priorpred_priorparams_tbl %>%
   mutate(
     prior_stanreg = pmap(
         list(prior_mean = p_m,
@@ -435,24 +444,111 @@ priorpred_summary_tbl <- priorpred_priorparams_tbl %>%
              incpt_sd   = i_s,
              autoscale  = a_s),
         calculate_priorpred_model,
+        fit_formula   = formula(claim_count ~ gas + cat_driver_age),
         fit_model_tbl = fit_model_tbl
         ),
-    prior_data = map(prior_stanreg,
-                     calculate_priorpred_summary,
-                     priorpred_data_tbl = priorpred_data_tbl)
+    prior_freqmean = map(prior_stanreg,
+                         calculate_priorpred_freqmean,
+                         priorpred_input_tbl = priorpred_input_tbl)
     )
 
-priorpred_summary_tbl %>% glimpse()
+priorpred1_data_tbl %>% write_rds("data/priorpred1_data_tbl.rds", compress = "xz")
+
+priorpred1_data_tbl %>% glimpse()
+```
+
+We now have quite a lot of data, so we take a sample of 10,000 rows of each
+set of prior parameters and plot for `freq_mean` value for each one.
+
+```{r plot_prior_freqmean_sample, echo=TRUE}
+prior_freqmodel1_plot_tbl <- priorpred1_data_tbl %>%
+  mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = 10000))) %>%
+  select(prior_id, a_s, prior_sample) %>%
+  unnest(prior_sample)
+
+ggplot(prior_freqmodel1_plot_tbl) +
+  geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean, colour = a_s)) +
+  scale_y_log10() +
+  xlab("Prior Params ID") +
+  ylab("Mean of Claim Frequency") +
+  ggtitle("Prior Predictive Distribution Plot for Simple Frequency Model")
+```
+
+From this it looks like the appropriate prior model is the first one: we centre
+our intercept on -6, and use autoscaling.
+
+This will be the prior we use once we are fitting our model.
+
+```{r write_priorpred1_free, echo=FALSE, results="hide"}
+rm(priorpred1_data_tbl)
+gc()
 ```
 
 
-```{r create_priorpred_mean_boxplots, echo=TRUE}
-# priorpred_summary_tbl %>%
-#   unnest(prior_data) %>%
-#   ggplot(.) +
-#     geom_boxplot(aes(x = prior_id, group = prior_id, y = freqmean_mean)) +
-#     scale_y_log10()
+
+### Adding More Predictors
+
+We now want to see if these prior parameters are also appropriate if we add
+more variables.
+
+We do so by adding a number of more categorical variables, and checking the
+effect on the outputs of the prior model.
+
+```{r construct_prior_model_2, echo=TRUE, cache=TRUE}
+fit_formula_2 <- formula(
+  claim_count ~ gas + cat_driver_age + cat_car_age + power + region
+)
+
+priorpred2_data_tbl <- priorpred_priorparams_tbl %>%
+  mutate(
+    prior_stanreg = pmap(
+        list(prior_mean = p_m,
+             prior_sd   = p_s,
+             incpt_mean = i_m,
+             incpt_sd   = i_s,
+             autoscale  = a_s),
+        calculate_priorpred_model,
+        fit_formula   = fit_formula_2,
+        fit_model_tbl = fit_model_tbl
+        ),
+    prior_freqmean = map(prior_stanreg,
+                         calculate_priorpred_freqmean,
+                         priorpred_input_tbl = priorpred_input_tbl)
+    )
+
+priorpred2_data_tbl %>% write_rds("data/priorpred2_data_tbl.rds", compress = "xz")
+
+priorpred2_data_tbl %>% glimpse()
 ```
+
+
+
+
+```{r plot_prior2_freqmean_sample, echo=TRUE}
+prior_freqmodel2_plot_tbl <- priorpred2_data_tbl %>%
+  mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = 10000))) %>%
+  select(prior_id, a_s, prior_sample) %>%
+  unnest(prior_sample)
+
+ggplot(prior_freqmodel2_plot_tbl) +
+  geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean, colour = a_s)) +
+  scale_y_log10() +
+  xlab("Prior Params ID") +
+  ylab("Mean of Claim Frequency") +
+  ggtitle("Prior Predictive Distribution Plot for Second Frequency Model")
+```
+
+
+```{r write_priorpred2_free, echo=FALSE, results="hide"}
+rm(priorpred2_data_tbl)
+gc()
+```
+
+
+
+
+
+
 
 
 
