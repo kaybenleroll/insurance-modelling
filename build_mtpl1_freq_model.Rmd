@@ -181,7 +181,7 @@ mtpl1_freq1_prior_stanreg <- stan_glm(
     seed     = stan_seed
     )
 
-mtpl1_freq1_prior_stanreg %>% glimpse()
+mtpl1_freq1_prior_stanreg %>% summary()
 ```
 
 We do not need to look at the whole dataset for the purposes of calibrating
