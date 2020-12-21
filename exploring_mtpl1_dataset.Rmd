@@ -38,7 +38,7 @@ library(cowplot)
 library(magrittr)
 library(rlang)
 library(glue)
-library(purrr)
+library(furrr)
 library(vctrs)
 library(fs)
 library(forcats)
@@ -741,7 +741,7 @@ vardata_tbl <- tribble(
                "Region",         "region",
      "Discrete Car Age",    "cat_car_age",
   "Discrete Driver Age", "cat_driver_age",
-     "Discrete Density",    "cat_car_age"
+     "Discrete Density",    "cat_density"
 )
 
 
@@ -775,12 +775,17 @@ to produce a posterior distribution of the claim rate.
 
 ### Calculate Bootstrap Claim Rate Estimates
 
+```{r set_bootstrap_count, echo=TRUE}
+n_bootstraps <- 200
+```
+
+
 As we will re-use the bootstrap a number of times in this project, I will
 first construct a bootstrap dataset that we can re-use whenever we need it.
 
 ```{r construct_bootstrapped_dataset, echo=TRUE}
 bootstrap_index_tbl <- data_tbl %>%
-  bootstraps(times = 200)
+  bootstraps(times = n_bootstraps)
 
 bootstrap_index_tbl %>% glimpse()
 ```
@@ -802,8 +807,8 @@ construct_bootdata <- ~ claimrate_vardata_tbl %>%
 extract_data <- ~ .x %>% mutate(data_tbl = map(data, "data_tbl"))
 
 bootstrap_claimrate_tbl <- bootstrap_index_tbl %>%
-  mutate(boot_data = map(splits, construct_bootdata)) %>%
-  mutate(tmpdata = map(boot_data, extract_data)) %>%
+  mutate(boot_data = map(splits, construct_bootdata),
+         tmpdata   = map(boot_data, extract_data)) %>%
   select(id, tmpdata) %>%
   unnest(tmpdata) %>%
   select(-data) %>%
@@ -831,6 +836,113 @@ construct_plot <- function(varname, data_tbl) {
 bootstrap_claimrate_tbl %>%
   mutate(data_plot = map2(varname, newdata, construct_plot)) %>%
   pull(data_plot)
+```
+
+This visualisation could mislead, as it suggests we are using the bootstrap
+on each individual value, whereas we are really sampling the joint distribution
+across all variables and calculating the joint values of the claim rate. To
+fix this, we instead plot each joint set of values.
+
+```{r construct_bootstrap_claimrate_joint_estimates, echo=TRUE}
+construct_joint_plot <- function(varname, data_tbl) {
+  summ_tbl <- data_tbl %>%
+    group_by(!! sym(varname)) %>%
+    summarise(
+      .groups = "drop",
+      
+      qn = c("p10", "p25", "p50", "p75", "p90"),
+      val = quantile(claim_rate, probs = c(0.10, 0.25, 0.5, 0.75, 0.90))
+      ) %>%
+    pivot_wider(names_from = qn, values_from = val)
+  
+  data_plot <- ggplot(data_tbl) +
+    geom_line(aes(x = !! sym(varname), y = claim_rate, group = id),
+              alpha = 0.1, colour = "blue") +
+    geom_point(aes(x = !! sym(varname), y = p50), data = summ_tbl) +
+    geom_errorbar(aes(x = !! sym(varname), ymin = p10, ymax = p90),
+                  data = summ_tbl, width = 0, size = 1) +
+    geom_errorbar(aes(x = !! sym(varname), ymin = p25, ymax = p75),
+                  data = summ_tbl, width = 0, size = 3, colour = "red") +
+    expand_limits(y = 0) +
+    labs(x = varname, y = "Claim Rate", fill = "Mean Total Exposure") +
+    ggtitle(glue("Bootstrap Estimates of the Claim Rate - {varname}"))
+  
+  if(varname %in% c("brand", "region")) {
+    data_plot <- data_plot + theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  }
+
+  return(data_plot)
+}
+
+
+bootstrap_claimrate_tbl %>%
+  mutate(data_plot = map2(varname, newdata, construct_joint_plot)) %>%
+  pull(data_plot)
+```
+
+
+### Calculate Individual Bootstrap Estimates
+
+We now switch our attention to running the bootstrap estimates on a per
+quantity basis, sampling each subset of the data rather than the whole
+dataset.
+
+
+```{r calculate_individual_bootstrap_estimates, echo=TRUE}
+calc_boot_claim_rate <- function(data_split) {
+  claimrate_tbl <- data_split %>%
+    analysis() %>%
+    summarise(
+      .groups = "drop",
+      
+      claim_rate = sum(claim_count) / sum(exposure)
+    )
+  
+  return(claimrate_tbl)
+}
+
+calc_singlevar_bootstrap <- function(data_tbl) {
+  boot_tbl <- data_tbl %>%
+    bootstraps(times = n_bootstraps) %>%
+    mutate(claim_rate_data = map(splits, calc_boot_claim_rate)) %>%
+    select(id, claim_rate_data) %>%
+    unnest(claim_rate_data)
+  
+  return(boot_tbl)
+}
+
+calculate_single_bootstrap_estimates <- function(varname, data_tbl) {
+  boot_tbl <- data_tbl %>%
+    group_nest(!! sym(varname)) %>%
+    mutate(boot_data = map(data, calc_singlevar_bootstrap)) %>%
+    select(-data) %>%
+    pivot_longer(!boot_data, names_to = "varname", values_to = "value") %>%
+    unnest(boot_data) %>%
+    mutate(value = value %>% as.character())
+  
+  return(boot_tbl)
+}
+
+single_boot_tbl <- vardata_tbl %>%
+  mutate(
+    var_data = map(varname, calculate_single_bootstrap_estimates,
+                   data_tbl = data_tbl)
+    ) %>%
+  select(label, var_data) %>%
+  unnest(var_data) %>%
+  select(label, varname, value, id, claim_rate)
+
+single_boot_tbl %>% glimpse()
+```
+
+To visualise these we create a facetted boxplot of the bootstrapped claim rates
+
+```{r plot_single_bootstrap_values, echo=TRUE}
+ggplot(single_boot_tbl %>% mutate(value = str_trunc(value, width = 10))) +
+  geom_boxplot(aes(x = value, y = claim_rate)) +
+  expand_limits(y = 0) +
+  facet_wrap(vars(label), scales = "free") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
 ```
 
 
