@@ -40,6 +40,7 @@ library(rlang)
 library(glue)
 library(purrr)
 library(furrr)
+library(fs)
 library(rsample)
 library(rstan)
 library(rstanarm)
@@ -190,7 +191,7 @@ using the `generated quantities` feature in Stan to generate a sample count of
 policies for each of the iterations in the posterior sample.
 
 ```{r construct_prior_predictive_data, echo=TRUE}
-n_sample <- 100
+n_sample <- 250
 
 priorpred_input_tbl <- fit_model_tbl %>%
   slice_sample(n = n_sample)
@@ -336,7 +337,7 @@ calculate_priorpred_model <- function(prior_mean, prior_sd,
       family   = poisson(),
       data     = fit_model_tbl,
       offset   = log(exposure),
-      iter     = 1000,
+      iter     = 500,
       chains   = 4,
       QR       = TRUE,
       prior_PD = TRUE,
@@ -349,21 +350,34 @@ calculate_priorpred_model <- function(prior_mean, prior_sd,
 }
 
 
-calculate_priorpred_freqmean <- function(priorpred_stanreg,
-                                         priorpred_input_tbl) {
+calculate_priorpred_data <- function(priorpred_stanreg,
+                                     priorpred_input_tbl) {
   
   n_sample <- priorpred_input_tbl %>% nrow()
   
   priorpred_freqmean_tbl <- priorpred_stanreg %>%
-    add_linpred_draws(
+    add_fitted_draws(
       newdata = priorpred_input_tbl,
       offset  = rep(1, n_sample),
       value   = "freq_mean"
       ) %>%
     ungroup() %>%
     select(policy_id, .row, .draw, freq_mean)
-  
-  return(priorpred_freqmean_tbl)
+
+  priorpred_sampcount_tbl <- priorpred_stanreg %>%
+    add_predicted_draws(
+      newdata    = priorpred_input_tbl,
+      offset     = rep(1, n_sample),
+      prediction = "sample_count"
+      ) %>%
+    ungroup() %>%
+    select(policy_id, .row, .draw, sample_count)
+
+  priorpred_data_tbl <- priorpred_freqmean_tbl %>%
+    inner_join(priorpred_sampcount_tbl, by = c("policy_id", ".row", ".draw"))
+
+
+  return(priorpred_data_tbl)
 }
 
 
@@ -431,6 +445,26 @@ priorpred_priorparams_tbl <- tribble(
      0.0,     1.0,    -5.0,     1.0,   FALSE,
      0.0,     1.0,    -5.0,     1.5,   FALSE,
      0.0,     1.0,    -5.0,     2.0,   FALSE,
+
+     0.0,     0.5,    -4.0,     0.5,    TRUE,
+     0.0,     0.5,    -4.0,     1.0,    TRUE,
+     0.0,     0.5,    -4.0,     1.5,    TRUE,
+     0.0,     0.5,    -4.0,     2.0,    TRUE,
+
+     0.0,     0.5,    -4.0,     0.5,   FALSE,
+     0.0,     0.5,    -4.0,     1.0,   FALSE,
+     0.0,     0.5,    -4.0,     1.5,   FALSE,
+     0.0,     0.5,    -4.0,     2.0,   FALSE,
+
+     0.0,     1.0,    -4.0,     0.5,    TRUE,
+     0.0,     1.0,    -4.0,     1.0,    TRUE,
+     0.0,     1.0,    -4.0,     1.5,    TRUE,
+     0.0,     1.0,    -4.0,     2.0,    TRUE,
+
+     0.0,     1.0,    -4.0,     0.5,   FALSE,
+     0.0,     1.0,    -4.0,     1.0,   FALSE,
+     0.0,     1.0,    -4.0,     1.5,   FALSE,
+     0.0,     1.0,    -4.0,     2.0,   FALSE,
     ) %>%
   mutate(prior_id = 1:n(), .before = 1)
 
@@ -448,21 +482,21 @@ priorpred1_data_tbl <- priorpred_priorparams_tbl %>%
         fit_model_tbl = fit_model_tbl
         ),
     prior_freqmean = map(prior_stanreg,
-                         calculate_priorpred_freqmean,
+                         calculate_priorpred_data,
                          priorpred_input_tbl = priorpred_input_tbl)
     )
-
-priorpred1_data_tbl %>% write_rds("data/priorpred1_data_tbl.rds", compress = "xz")
 
 priorpred1_data_tbl %>% glimpse()
 ```
 
-We now have quite a lot of data, so we take a sample of 10,000 rows of each
+We now have quite a lot of data, so we take a sample of 1000 rows of each
 set of prior parameters and plot for `freq_mean` value for each one.
 
 ```{r plot_prior_freqmean_sample, echo=TRUE}
+n_slicesize <- 10000
+
 prior_freqmodel1_plot_tbl <- priorpred1_data_tbl %>%
-  mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = 10000))) %>%
+  mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = n_slicesize))) %>%
   select(prior_id, a_s, prior_sample) %>%
   unnest(prior_sample)
 
@@ -472,14 +506,38 @@ ggplot(prior_freqmodel1_plot_tbl) +
   xlab("Prior Params ID") +
   ylab("Mean of Claim Frequency") +
   ggtitle("Prior Predictive Distribution Plot for Simple Frequency Model")
+
+
+prior_freqmodel1_maxcount_tbl <- prior_freqmodel1_plot_tbl %>%
+  group_by(prior_id, a_s, policy_id) %>%
+  summarise(
+    .groups = "drop",
+    max_count = max(sample_count)
+    )
+
+ggplot(prior_freqmodel1_maxcount_plot_tbl) +
+  geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
+  scale_x_log10(labels = label_comma()) +
+  facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
+  xlab("Max Claim Count") +
+  ylab("Frequency") +
+  ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
-From this it looks like the appropriate prior model is the first one: we centre
-our intercept on -6, and use autoscaling.
+From this it looks like the appropriate prior model is the Prior ID 4: our 
+parameters have a prior of $\mathcal{N}(0, 0.5)$ and our intercept is
+$\mathcal{N}(-6, 2)$ and use autoscaling. 
 
 This will be the prior we use once we are fitting our model.
 
-```{r write_priorpred1_free, echo=FALSE, results="hide"}
+```{r write_free_priorpred1_data, echo=FALSE, results="hide"}
+priorpred_file <- "data/priorpred1_data_tbl.rds"
+
+if(!file_exists(priorpred_file)) {
+  priorpred1_data_tbl %>% write_rds("data/priorpred1_data_tbl.rds")
+}
+
 rm(priorpred1_data_tbl)
 gc()
 ```
@@ -512,11 +570,9 @@ priorpred2_data_tbl <- priorpred_priorparams_tbl %>%
         fit_model_tbl = fit_model_tbl
         ),
     prior_freqmean = map(prior_stanreg,
-                         calculate_priorpred_freqmean,
+                         calculate_priorpred_data,
                          priorpred_input_tbl = priorpred_input_tbl)
     )
-
-priorpred2_data_tbl %>% write_rds("data/priorpred2_data_tbl.rds", compress = "xz")
 
 priorpred2_data_tbl %>% glimpse()
 ```
@@ -526,7 +582,7 @@ priorpred2_data_tbl %>% glimpse()
 
 ```{r plot_prior2_freqmean_sample, echo=TRUE}
 prior_freqmodel2_plot_tbl <- priorpred2_data_tbl %>%
-  mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = 10000))) %>%
+  mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = n_slicesize))) %>%
   select(prior_id, a_s, prior_sample) %>%
   unnest(prior_sample)
 
@@ -539,7 +595,13 @@ ggplot(prior_freqmodel2_plot_tbl) +
 ```
 
 
-```{r write_priorpred2_free, echo=FALSE, results="hide"}
+```{r write_free_priorpred2_data, echo=FALSE, results="hide"}
+priorpred_file <- "data/priorpred2_data_tbl.rds"
+
+if(!file_exists(priorpred_file)) {
+  priorpred2_data_tbl %>% write_rds("data/priorpred2_data_tbl.rds")
+}
+
 rm(priorpred2_data_tbl)
 gc()
 ```
