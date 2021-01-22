@@ -495,12 +495,12 @@ set of prior parameters and plot for `freq_mean` value for each one.
 ```{r plot_prior_freqmean_sample, echo=TRUE}
 n_slicesize <- 10000
 
-prior_freqmodel1_plot_tbl <- priorpred1_data_tbl %>%
+prior_freqmodel1_freqmean_plot_tbl <- priorpred1_data_tbl %>%
   mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = n_slicesize))) %>%
   select(prior_id, a_s, prior_sample) %>%
   unnest(prior_sample)
 
-ggplot(prior_freqmodel1_plot_tbl) +
+ggplot(prior_freqmodel1_freqmean_plot_tbl) +
   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean, colour = a_s)) +
   scale_y_log10() +
   xlab("Prior Params ID") +
@@ -508,7 +508,7 @@ ggplot(prior_freqmodel1_plot_tbl) +
   ggtitle("Prior Predictive Distribution Plot for Simple Frequency Model")
 
 
-prior_freqmodel1_maxcount_tbl <- prior_freqmodel1_plot_tbl %>%
+prior_freqmodel1_maxcount_plot_tbl <- prior_freqmodel1_freqmean_plot_tbl %>%
   group_by(prior_id, a_s, policy_id) %>%
   summarise(
     .groups = "drop",
@@ -535,12 +535,15 @@ This will be the prior we use once we are fitting our model.
 priorpred_file <- "data/priorpred1_data_tbl.rds"
 
 if(!file_exists(priorpred_file)) {
-  priorpred1_data_tbl %>% write_rds("data/priorpred1_data_tbl.rds")
+#  priorpred1_data_tbl %>% write_rds("data/priorpred1_data_tbl.rds")
 }
 
-rm(priorpred1_data_tbl)
-gc()
+#rm(priorpred1_data_tbl)
+#gc()
+
+knitr::knit_exit()
 ```
+
 
 
 
