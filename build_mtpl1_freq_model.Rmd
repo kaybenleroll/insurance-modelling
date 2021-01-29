@@ -23,14 +23,6 @@ output:
 
 
 ```{r import_libraries, echo=FALSE, message=FALSE}
-knitr::opts_chunk$set(tidy       = FALSE,
-                      cache      = FALSE,
-                      warning    = FALSE,
-                      message    = FALSE,
-                      fig.height =     8,
-                      fig.width  =    11
-                     )
-
 library(conflicted)
 library(tidyverse)
 library(scales)
@@ -57,10 +49,20 @@ resolve_conflicts(
   )
 
 
-options(width = 80L,
-        warn  = 1,
-        mc.cores = parallel::detectCores()
-        )
+knitr::opts_chunk$set(
+  tidy       = FALSE,
+  cache      = FALSE,
+  warning    = FALSE,
+  message    = FALSE,
+  fig.height =     8,
+  fig.width  =    11
+  )
+
+options(
+  width = 80L,
+  warn  = 1,
+  mc.cores = parallel::detectCores()
+  )
 
 theme_set(theme_cowplot())
 
@@ -174,7 +176,7 @@ mtpl1_freq1_prior_stanreg <- stan_glm(
     family   = poisson(),
     data     = fit_model_tbl,
     offset   = log(exposure),
-    iter     = 1000,
+    iter     = 500,
     chains   = 4,
     QR       = TRUE,
     prior    = normal(location = 0, scale = 1),
@@ -191,10 +193,11 @@ using the `generated quantities` feature in Stan to generate a sample count of
 policies for each of the iterations in the posterior sample.
 
 ```{r construct_prior_predictive_data, echo=TRUE}
-n_sample <- 250
+n_sample <- 100
 
 priorpred_input_tbl <- fit_model_tbl %>%
-  slice_sample(n = n_sample)
+  slice_sample(n = n_sample) %>%
+  arrange(policy_id)
 
 priorpred_input_tbl %>% glimpse()
 ```
@@ -260,7 +263,7 @@ mtpl1_freq1_prior2_stanreg <- stan_glm(
     family   = poisson(),
     data     = fit_model_tbl,
     offset   = log(exposure),
-    iter     = 1000,
+    iter     = 500,
     chains   = 4,
     QR       = TRUE,
     prior_PD = TRUE,
@@ -325,7 +328,7 @@ construct a function that sets the priors and calculates the summary statistics
 of interesting from the prior predictive distribution. This should help us
 decide on the priors we use for the model.
 
-```{r construct_prior_model_functions, echo=TRUE}
+```{r construct_prior_model_functions, echo=TRUE, cache=TRUE, cache.lazy=FALSE}
 calculate_priorpred_model <- function(prior_mean, prior_sd,
                                       incpt_mean, incpt_sd,
                                       autoscale,
@@ -515,7 +518,16 @@ prior_freqmodel1_maxcount_plot_tbl <- prior_freqmodel1_freqmean_plot_tbl %>%
     max_count = max(sample_count)
     )
 
-ggplot(prior_freqmodel1_maxcount_plot_tbl) +
+ggplot(prior_freqmodel1_maxcount_plot_tbl %>% filter(prior_id %in% c(1:24))) +
+  geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
+  scale_x_log10(labels = label_comma()) +
+  facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
+  xlab("Max Claim Count") +
+  ylab("Frequency") +
+  ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggplot(prior_freqmodel1_maxcount_plot_tbl %>% filter(prior_id %in% c(25:48))) +
   geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
   scale_x_log10(labels = label_comma()) +
   facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
@@ -525,26 +537,48 @@ ggplot(prior_freqmodel1_maxcount_plot_tbl) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
-From this it looks like the appropriate prior model is the Prior ID 4: our 
-parameters have a prior of $\mathcal{N}(0, 0.5)$ and our intercept is
-$\mathcal{N}(-6, 2)$ and use autoscaling. 
+We would like to use two sets of prior parameters - one for each value of
+`auto_scale`. From this output, it appears we have a number of candidates, so
+we should look at the summaries of the data to try to select our priors.
 
-This will be the prior we use once we are fitting our model.
+```{r inspect_prior_predictive_outputs, echo=TRUE}
+calc_max_count <- ~ .x %>%
+  summarise(
+    .groups = "drop",
+    
+    max_count = max(sample_count)
+    )
+
+maxcount_tbl <- priorpred1_data_tbl %>%
+  mutate(
+    max_count_data = map(prior_freqmean, calc_max_count)
+    ) %>%
+  select(-prior_stanreg, -prior_freqmean) %>%
+  unnest(max_count_data)
+
+maxcount_tbl %>% datatable()
+```
+
+From this it looks like the appropriate prior model is the Prior ID 2: our 
+parameters have a prior of $\mathcal{N}(0, 0.5)$ and our intercept is
+$\mathcal{N}(-6, 1)$ and use autoscaling. For the non-autoscaled parameters,
+we go with Prior ID 48: parameters are $\mathcal{N}(0, 1)$ and our intercept
+is $\mathcal{N}(-4, 2)$.
+
+This will be the prior we use once we are fitting our initial frequency model.
+
+
 
 ```{r write_free_priorpred1_data, echo=FALSE, results="hide"}
 priorpred_file <- "data/priorpred1_data_tbl.rds"
 
 if(!file_exists(priorpred_file)) {
-#  priorpred1_data_tbl %>% write_rds("data/priorpred1_data_tbl.rds")
+  priorpred1_data_tbl %>% write_rds("data/priorpred1_data_tbl.rds")
 }
 
-#rm(priorpred1_data_tbl)
-#gc()
-
-knitr::knit_exit()
+rm(priorpred1_data_tbl)
+gc()
 ```
-
-
 
 
 ### Adding More Predictors
@@ -555,7 +589,7 @@ more variables.
 We do so by adding a number of more categorical variables, and checking the
 effect on the outputs of the prior model.
 
-```{r construct_prior_model_2, echo=TRUE, cache=TRUE}
+```{r construct_prior_model_2, echo=TRUE, cache=TRUE, cache.lazy=FALSE}
 fit_formula_2 <- formula(
   claim_count ~ gas + cat_driver_age + cat_car_age + power + region
 )
@@ -580,22 +614,80 @@ priorpred2_data_tbl <- priorpred_priorparams_tbl %>%
 priorpred2_data_tbl %>% glimpse()
 ```
 
-
+As before, we now want to investigate these posterior parameters to see what
+possible values we use.
 
 
 ```{r plot_prior2_freqmean_sample, echo=TRUE}
-prior_freqmodel2_plot_tbl <- priorpred2_data_tbl %>%
+prior_freqmodel2_freqmean_plot_tbl <- priorpred2_data_tbl %>%
   mutate(prior_sample = map(prior_freqmean, ~ .x %>% slice_sample(n = n_slicesize))) %>%
   select(prior_id, a_s, prior_sample) %>%
   unnest(prior_sample)
 
-ggplot(prior_freqmodel2_plot_tbl) +
+ggplot(prior_freqmodel2_freqmean_plot_tbl) +
   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean, colour = a_s)) +
   scale_y_log10() +
   xlab("Prior Params ID") +
   ylab("Mean of Claim Frequency") +
-  ggtitle("Prior Predictive Distribution Plot for Second Frequency Model")
+  ggtitle("Prior Predictive Distribution Plot for Simple Frequency Model")
+
+
+prior_freqmodel2_maxcount_plot_tbl <- prior_freqmodel1_freqmean_plot_tbl %>%
+  group_by(prior_id, a_s, policy_id) %>%
+  summarise(
+    .groups = "drop",
+    max_count = max(sample_count)
+    )
+
+ggplot(prior_freqmodel2_maxcount_plot_tbl %>% filter(prior_id %in% c(1:24))) +
+  geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
+  scale_x_log10(labels = label_comma()) +
+  facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
+  xlab("Max Claim Count") +
+  ylab("Frequency") +
+  ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggplot(prior_freqmodel2_maxcount_plot_tbl %>% filter(prior_id %in% c(25:48))) +
+  geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
+  scale_x_log10(labels = label_comma()) +
+  facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
+  xlab("Max Claim Count") +
+  ylab("Frequency") +
+  ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
 ```
+
+As before, we want to explicitly investigate the outputs of the model, based
+on the above graphical representations.
+
+
+```{r inspect_prior2_predictive_outputs, echo=TRUE}
+calc_max_count <- ~ .x %>%
+  summarise(
+    .groups = "drop",
+    
+    max_count = max(sample_count)
+    )
+
+maxcount_tbl <- priorpred2_data_tbl %>%
+  mutate(
+    max_count_data = map(prior_freqmean, calc_max_count)
+    ) %>%
+  select(-prior_stanreg, -prior_freqmean) %>%
+  unnest(max_count_data)
+
+maxcount_tbl %>% datatable()
+```
+
+From looking at this data, autoscaling seems to give much too large values, so
+we may be forced to not use it once we add in our data. For data that is not
+scaled however, Prior ID 24 seems like a good candidate, so we have parameters
+with prior $\mathcal{N}(0, 0.5)$ and intercept $\mathcal{N}(-5, 2)$.
+
+For autoscaled priors, we will probably try the smallest set of parameters,
+with $\mathcal{N}(0, 1)$ and prior $\mathcal{N}(-6, 2)$.
 
 
 ```{r write_free_priorpred2_data, echo=FALSE, results="hide"}
@@ -609,11 +701,10 @@ rm(priorpred2_data_tbl)
 gc()
 ```
 
+We now have some priors to work with.
 
 
-
-
-
+## Fitting the Model
 
 
 
