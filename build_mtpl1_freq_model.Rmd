@@ -127,7 +127,7 @@ mtpl1_testing_tbl %>% glimpse()
 
 
 
-# Our First Frequency Model
+# Constructing the Frequency Model
 
 We start with a simple frequency model for the car insurance data, using prior
 predictive checks to the set our prior parameters. The first time we do this
@@ -158,6 +158,35 @@ regression: either Poisson or Negative Binomial, and will will try both.
 Our idea is to have our parameters vary on a unit scale, and so Normal priors
 should be fine. This leaves the intercept, so we start with a Normal prior here
 also and see what the effect is.
+
+For the purposes of creating some summary information on the mean frequency for
+our frequency model, we create a simple summary function that calculates this
+summary information in a standard way.
+
+```{r calculate_mean_freq_summary, echo=TRUE}
+calculate_mean_freq_summary <- function(data_tbl) {
+  summary_tbl <- data_tbl %>%
+    summarise(
+      .groups = "drop",
+  
+      freqmean_min  = min(freq_mean) %>% round(4),
+      freqmean_p10  = quantile(freq_mean, 0.10) %>% round(4),
+      freqmean_p25  = quantile(freq_mean, 0.25) %>% round(4),
+      freqmean_p50  = quantile(freq_mean, 0.50) %>% round(4),
+      freqmean_p75  = quantile(freq_mean, 0.75) %>% round(4),
+      freqmean_p90  = quantile(freq_mean, 0.90) %>% round(4),
+      freqmean_max  = max(freq_mean) %>% round(4),
+
+      freqmean_mean = mean(freq_mean) %>% round(4),
+      freqmean_sd   = sd(freq_mean) %>% round(4)
+      )
+
+  return(summary_tbl)
+}
+
+
+```
+
 
 ### Our First Prior Model
 
@@ -223,19 +252,7 @@ this to tweak our priors in a principled way.
 ```{r freq1_calculate_prior_predict_summaries, echo=TRUE}
 priorpred_freq1_summary_tbl <- priorpred_freq1_tbl %>%
   group_by(.row) %>%
-  summarise(
-    .groups = "drop",
-
-    freqmean_min  = min(freq_mean),
-    freqmean_p10  = quantile(freq_mean, 0.10),
-    freqmean_p25  = quantile(freq_mean, 0.25),
-    freqmean_p50  = quantile(freq_mean, 0.50),
-    freqmean_p75  = quantile(freq_mean, 0.75),
-    freqmean_p90  = quantile(freq_mean, 0.90),
-    freqmean_max  = max(freq_mean),
-    freqmean_mean = mean(freq_mean),
-    freqmean_sd   = sd(freq_mean)
-    )
+  calculate_mean_freq_summary()
 
 priorpred_freq1_summary_tbl %>% glimpse()
 ```
@@ -280,19 +297,7 @@ priorpred_freq1_summary_tbl <- priorpred_input_tbl %>%
     ) %>%
   ungroup() %>%
   group_by(.row) %>%
-  summarise(
-    .groups = "drop",
-
-    freqmean_min  = min(freq_mean),
-    freqmean_p10  = quantile(freq_mean, 0.10),
-    freqmean_p25  = quantile(freq_mean, 0.25),
-    freqmean_p50  = quantile(freq_mean, 0.50),
-    freqmean_p75  = quantile(freq_mean, 0.75),
-    freqmean_p90  = quantile(freq_mean, 0.90),
-    freqmean_max  = max(freq_mean),
-    freqmean_mean = mean(freq_mean),
-    freqmean_sd   = sd(freq_mean)
-    )
+  calculate_mean_freq_summary()
 
 priorpred_freq1_summary_tbl %>% glimpse()
 ```
@@ -375,27 +380,6 @@ calculate_priorpred_output_data <- function(prior_mean, prior_sd,
     inner_join(priorpred_sampcount_tbl, by = c("policy_id", ".draw"))
 
   return(priorpred_data_tbl)
-}
-
-
-calculate_data_summary <- function(data_tbl) {
-  summary_tbl <- data_tbl %>%
-    summarise(
-      .groups = "drop",
-  
-      freqmean_min  = min(freq_mean),
-      freqmean_p10  = quantile(freq_mean, 0.10),
-      freqmean_p25  = quantile(freq_mean, 0.25),
-      freqmean_p50  = quantile(freq_mean, 0.50),
-      freqmean_p75  = quantile(freq_mean, 0.75),
-      freqmean_p90  = quantile(freq_mean, 0.90),
-      freqmean_max  = max(freq_mean),
-
-      freqmean_mean = mean(freq_mean),
-      freqmean_sd   = sd(freq_mean)
-      )
-
-  return(summary_tbl)
 }
 ```
 
@@ -603,9 +587,9 @@ priorpred1_negbin_data_tbl %>% glimpse()
 
 ```{r plot_priorpred1_negbin_output_sample, echo=TRUE}
 prior_freqmodel1_freqmean_plot_tbl <- priorpred1_negbin_data_tbl %>%
-  mutate(prior_sample = map(prior_output, ~ .x %>% slice_sample(n = n_slicesize))) %>%
-  select(prior_id, a_s, prior_sample) %>%
-  unnest(prior_sample)
+  select(prior_id, a_s, prior_output) %>%
+  unnest(prior_output) %>%
+  arrange(prior_id, a_s, policy_id, .draw)
 
 ggplot(prior_freqmodel1_freqmean_plot_tbl) +
   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean, colour = a_s)) +
@@ -654,6 +638,9 @@ maxcount_tbl %>% datatable()
 ```
 
 
+```{r write_free_priorpred1_negbin_data, echo=FALSE}
+priorpred1_negbin_data_tbl %>% write_rds("data/priorpred1_negbin_data_tbl.rds")
+```
 
 
 
@@ -666,28 +653,38 @@ We do so by adding a number of more categorical variables, and checking the
 effect on the outputs of the prior model.
 
 ```{r construct_prior_model_2, echo=TRUE, cache=TRUE}
-# fit_formula_2 <- formula(
-#   claim_count ~ gas + cat_driver_age + cat_car_age + power + region
-# )
-# 
-# priorpred2_data_tbl <- priorpred_priorparams_tbl %>%
-#   mutate(
-#     prior_stanreg = pmap(
-#         list(prior_mean = p_m,
-#              prior_sd   = p_s,
-#              incpt_mean = i_m,
-#              incpt_sd   = i_s,
-#              autoscale  = a_s),
-#         calculate_priorpred_model,
-#         fit_formula  = fit_formula_2,
-#         fit_data_tbl = fit_data_tbl
-#         ),
-#     prior_output = map(prior_stanreg,
-#                          calculate_priorpred_data,
-#                          priorpred_input_tbl = priorpred_input_tbl)
-#     )
-# 
-# priorpred2_data_tbl %>% glimpse()
+fit_formula_2 <- formula(
+  claim_count ~ gas + cat_driver_age + cat_car_age + power + region
+)
+
+fam_params_tbl <- tibble(fam_str = c("poisson", "neg_binomial_2")) %>%
+  mutate(data = list(priorpred_priorparams_tbl)) %>%
+  select(data, fam_str) %>%
+  unnest(data) %>%
+  mutate(
+    prior_id    = 1:n(),
+    dist_family = map(fam_str, ~ .x %>% get() %>% exec())
+    )
+
+
+priorpred2_data_tbl <- fam_params_tbl %>%
+  mutate(
+    prior_output = pmap(
+        list(prior_mean  = p_m,
+             prior_sd    = p_s,
+             incpt_mean  = i_m,
+             incpt_sd    = i_s,
+             autoscale   = a_s,
+             dist_family = dist_family
+             ),
+        calculate_priorpred_output_data,
+        fit_formula         = fit_formula_2,
+        fit_data_tbl        = fit_data_tbl,
+        priorpred_input_tbl = priorpred_input_tbl
+        )
+    )
+
+priorpred2_data_tbl %>% glimpse()
 ```
 
 As before, we now want to investigate these posterior parameters to see what
@@ -695,43 +692,43 @@ possible values we use.
 
 
 ```{r plot_prior2_freqmean_sample, echo=TRUE}
-# prior_freqmodel2_freqmean_plot_tbl <- priorpred2_data_tbl %>%
-#   mutate(prior_sample = map(prior_output, ~ .x %>% slice_sample(n = n_slicesize))) %>%
-#   select(prior_id, a_s, prior_sample) %>%
-#   unnest(prior_sample)
-# 
-# ggplot(prior_freqmodel2_freqmean_plot_tbl) +
-#   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean, colour = a_s)) +
-#   scale_y_log10() +
-#   xlab("Prior Params ID") +
-#   ylab("Mean of Claim Frequency") +
-#   ggtitle("Prior Predictive Distribution Plot for Simple Frequency Model")
-# 
-# 
-# prior_freqmodel2_maxcount_plot_tbl <- prior_freqmodel1_freqmean_plot_tbl %>%
-#   group_by(prior_id, a_s, policy_id) %>%
-#   summarise(
-#     .groups = "drop",
-#     max_count = max(sample_count)
-#     )
-# 
-# ggplot(prior_freqmodel2_maxcount_plot_tbl %>% filter(prior_id %in% c(1:24))) +
-#   geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
-#   scale_x_log10(labels = label_comma()) +
-#   facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
-#   xlab("Max Claim Count") +
-#   ylab("Frequency") +
-#   ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
-#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
-# 
-# ggplot(prior_freqmodel2_maxcount_plot_tbl %>% filter(prior_id %in% c(25:48))) +
-#   geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
-#   scale_x_log10(labels = label_comma()) +
-#   facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
-#   xlab("Max Claim Count") +
-#   ylab("Frequency") +
-#   ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
-#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+prior_freqmodel2_freqmean_plot_tbl <- priorpred2_data_tbl %>%
+  select(prior_id, fam_str, a_s, prior_output) %>%
+  unnest(prior_output) %>%
+  arrange(prior_id, fam_str, a_s, policy_id, .draw)
+
+ggplot(prior_freqmodel2_freqmean_plot_tbl) +
+  geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean, colour = a_s)) +
+  scale_y_log10() +
+  xlab("Prior Params ID") +
+  ylab("Mean of Claim Frequency") +
+  ggtitle("Prior Predictive Distribution Plot for Simple Frequency Model")
+
+
+prior_freqmodel2_maxcount_plot_tbl <- prior_freqmodel1_freqmean_plot_tbl %>%
+  group_by(prior_id, a_s, policy_id) %>%
+  summarise(
+    .groups = "drop",
+    max_count = max(sample_count)
+    )
+
+ggplot(prior_freqmodel2_maxcount_plot_tbl %>% filter(prior_id %in% c(1:24))) +
+  geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
+  scale_x_log10(labels = label_comma()) +
+  facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
+  xlab("Max Claim Count") +
+  ylab("Frequency") +
+  ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggplot(prior_freqmodel2_maxcount_plot_tbl %>% filter(prior_id %in% c(25:48))) +
+  geom_histogram(aes(x = max_count, fill = a_s), bins = 50) +
+  scale_x_log10(labels = label_comma()) +
+  facet_wrap(vars(prior_id), nrow = 4, scales = "free") +
+  xlab("Max Claim Count") +
+  ylab("Frequency") +
+  ggtitle("Histograms of Max Claim Count by Sets of Prior Parameters") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
 ```
 
@@ -740,21 +737,21 @@ on the above graphical representations.
 
 
 ```{r inspect_prior2_predictive_outputs, echo=TRUE}
-# calc_max_count <- ~ .x %>%
-#   summarise(
-#     .groups = "drop",
-#     
-#     max_count = max(sample_count)
-#     )
-# 
-# maxcount_tbl <- priorpred2_data_tbl %>%
-#   mutate(
-#     max_count_data = map(prior_output, calc_max_count)
-#     ) %>%
-#   select(-prior_stanreg, -prior_output) %>%
-#   unnest(max_count_data)
-# 
-# maxcount_tbl %>% datatable()
+calc_max_count <- ~ .x %>%
+  summarise(
+    .groups = "drop",
+
+    max_count = max(sample_count)
+    )
+
+maxcount_priorpred2_tbl <- priorpred2_data_tbl %>%
+  mutate(
+    max_count_data = map(prior_output, calc_max_count)
+    ) %>%
+  select(-dist_family, -prior_output) %>%
+  unnest(max_count_data)
+
+maxcount_priorpred2_tbl %>% datatable()
 ```
 
 From looking at this data, autoscaling seems to give much too large values, so
@@ -767,23 +764,20 @@ with $\mathcal{N}(0, 1)$ and prior $\mathcal{N}(-6, 2)$.
 
 
 ```{r write_free_priorpred2_data, echo=FALSE, results="hide"}
-# priorpred_file <- "data/priorpred2_data_tbl.rds"
-# 
-# if(!file_exists(priorpred_file)) {
-#   priorpred2_data_tbl %>% write_rds("data/priorpred2_data_tbl.rds")
-# }
-# 
-# rm(priorpred2_data_tbl)
-# gc()
+priorpred_file <- "data/priorpred2_data_tbl.rds"
+
+if(!file_exists(priorpred_file)) {
+  priorpred2_data_tbl %>% write_rds("data/priorpred2_data_tbl.rds")
+}
 ```
 
-We now have some priors to work with.
+We now have some priors for our two models to work with.
 
 
 
 
 
-## Fitting the Model
+# Fitting the Model
 
 We now turn our attention to fitting a Bayesian model using our training data
 and we will evaluate these models using both in-sample and out-of-sample data.
