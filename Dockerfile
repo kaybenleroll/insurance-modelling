@@ -26,11 +26,8 @@ RUN apt-get update \
     sweep \
     xts
 
+COPY build/docker_install_rpkgs.R /tmp/
 
-WORKDIR /tmp
-
-RUN wget http://cas.uqam.ca/pub/R/src/contrib/CASdatasets_1.0-10.tar.gz \
-  && R CMD INSTALL CASdatasets_1.0-10.tar.gz \
-  && rm /tmp/*.tar.gz
+RUN Rscript /tmp/docker_install_rpkgs.R
 
 WORKDIR /home/rstudio
