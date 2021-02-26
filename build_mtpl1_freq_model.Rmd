@@ -1,5 +1,5 @@
 ---
-title: "Build the MTPL1 Frequency Model"
+title: "MTPL1: Build the First Frequency Model"
 author: "Mick Cooney <mickcooney@gmail.com>"
 date: "`r Sys.Date()`"
 output:
@@ -592,7 +592,9 @@ also include the largest observed count of claims in the sample. This allows
 us to calibrate our expections.
 
 ```{r plot_priorpred1_pois_output_sample, echo=TRUE}
-ref_mean <- 1
+max_mean <- 1
+ref_mean <- 0.1
+
 
 prior_freqmodel1_freqmean_pois_plot_tbl <- priorpred1_pois_data_tbl %>%
   select(prior_id, a_s, prior_output) %>%
@@ -608,7 +610,8 @@ max_count_pois_tbl <- prior_freqmodel1_freqmean_pois_plot_tbl %>%
 
 ggplot(prior_freqmodel1_freqmean_pois_plot_tbl %>% filter(a_s == FALSE)) +
   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean)) +
-  geom_hline(aes(yintercept = ref_mean), colour = "red") +
+  geom_hline(aes(yintercept = ref_mean), colour = "green") +
+  geom_hline(aes(yintercept = max_mean), colour = "red") +
   geom_text(aes(x = prior_id, y = 1e-7, label = prior_id), angle = 90) +
   geom_text(aes(x = prior_id, y = max_count, label = max_count),
             data = max_count_pois_tbl %>% filter(a_s == FALSE), colour = "red") +
@@ -620,7 +623,8 @@ ggplot(prior_freqmodel1_freqmean_pois_plot_tbl %>% filter(a_s == FALSE)) +
 
 ggplot(prior_freqmodel1_freqmean_pois_plot_tbl %>% filter(a_s == TRUE)) +
   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean)) +
-  geom_hline(aes(yintercept = ref_mean), colour = "red") +
+  geom_hline(aes(yintercept = ref_mean), colour = "green") +
+  geom_hline(aes(yintercept = max_mean), colour = "red") +
   geom_text(aes(x = prior_id, y = 1e-12, label = prior_id), angle = 90) +
   geom_text(aes(x = prior_id, y = max_count, label = label_scientific()(max_count)),
             data = max_count_pois_tbl %>% filter(a_s == TRUE), colour = "red") +
@@ -631,7 +635,23 @@ ggplot(prior_freqmodel1_freqmean_pois_plot_tbl %>% filter(a_s == TRUE)) +
 
 ```
 
+From a visual inspect of the unscaled priors, there seems to be two good
+candidates: priors 4 and 8.
 
+
+Rather than choose, we will try both and check what effect the different priors
+have.
+
+The autoscaled priors we always get unfeasibly large possible claim counts, so
+we are likely to exclude them, but just to try them out to see what effect
+there is, we will use prior 11.
+
+```{r show_selected_poisson_priors, echo=TRUE}
+priorpred_poisson_tbl <- priorpred_priorparams_tbl %>%
+  filter(prior_id %in% c(4, 8, 11))
+
+priorpred_poisson_tbl %>% print()
+```
 
 
 
@@ -680,7 +700,8 @@ max_count_negbin_tbl <- prior_freqmodel1_freqmean_negbin_plot_tbl %>%
 
 ggplot(prior_freqmodel1_freqmean_negbin_plot_tbl %>% filter(a_s == FALSE)) +
   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean)) +
-  geom_hline(aes(yintercept = ref_mean), colour = "red") +
+  geom_hline(aes(yintercept = ref_mean), colour = "green") +
+  geom_hline(aes(yintercept = max_mean), colour = "red") +
   geom_text(aes(x = prior_id, y = 1e-7, label = prior_id), angle = 90) +
   geom_text(aes(x = prior_id, y = max_count, label = max_count),
             data = max_count_negbin_tbl %>% filter(a_s == FALSE), colour = "red") +
@@ -692,7 +713,8 @@ ggplot(prior_freqmodel1_freqmean_negbin_plot_tbl %>% filter(a_s == FALSE)) +
 
 ggplot(prior_freqmodel1_freqmean_negbin_plot_tbl %>% filter(a_s == TRUE)) +
   geom_boxplot(aes(x = prior_id, group = prior_id, y = freq_mean)) +
-  geom_hline(aes(yintercept = ref_mean), colour = "red") +
+  geom_hline(aes(yintercept = ref_mean), colour = "green") +
+  geom_hline(aes(yintercept = max_mean), colour = "red") +
   geom_text(aes(x = prior_id, y = 1e-12, label = prior_id), angle = 90) +
   geom_text(aes(x = prior_id, y = max_count, label = label_scientific()(max_count)),
             data = max_count_negbin_tbl %>% filter(a_s == TRUE), colour = "red") +
@@ -703,11 +725,27 @@ ggplot(prior_freqmodel1_freqmean_negbin_plot_tbl %>% filter(a_s == TRUE)) +
 
 ```
 
+For the negative binomial model, it looks like prior 22 is the one to use with
+unscaled priors, and for the autoscaled we will try prior 9.
+
+
+```{r show_selected_negbin_priors, echo=TRUE}
+priorpred_negbin_tbl <- priorpred_priorparams_tbl %>%
+  filter(prior_id %in% c(9, 22))
+
+priorpred_negbin_tbl %>% print()
+```
 
 
 
 
 
+# Conditioning on the Data
+
+We now want to use our selected set of prior parameters with the data to see
+what effect the various sets of priors have on our fitted models, and also to
+see how our Bayesian regression models work to produce various frequency
+models.
 
 
 
