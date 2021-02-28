@@ -23,14 +23,6 @@ output:
 
 
 ```{r import_libraries, echo=FALSE, message=FALSE}
-knitr::opts_chunk$set(tidy       = FALSE,
-                      cache      = FALSE,
-                      warning    = FALSE,
-                      message    = FALSE,
-                      fig.height =     8,
-                      fig.width  =    11
-                     )
-
 library(conflicted)
 library(tidyverse)
 library(scales)
@@ -50,15 +42,28 @@ library(sf)
 library(evir)
 
 
-source("custom_functions.R")
+knitr::opts_chunk$set(
+  tidy       = FALSE,
+  cache      = FALSE,
+  warning    = FALSE,
+  message    = FALSE,
+  fig.height =     8,
+  fig.width  =    11
+  )
 
-resolve_conflicts(c("magrittr", "rlang", "dplyr", "readr", "purrr", "ggplot2"))
+
+source("lib_utils.R")
+
+resolve_conflicts(
+  c("magrittr", "rlang", "dplyr", "readr", "purrr", "ggplot2")
+  )
 
 
-options(width = 80L,
-        warn  = 1,
-        mc.cores = parallel::detectCores()
-        )
+options(
+  width = 80L,
+  warn  = 1,
+  mc.cores = parallel::detectCores()
+  )
 
 theme_set(theme_cowplot())
 

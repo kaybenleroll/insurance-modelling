@@ -42,7 +42,7 @@ library(tidybayes)
 library(DT)
 
 
-source("custom_functions.R")
+source("lib_utils.R")
 
 resolve_conflicts(
   c("magrittr", "rlang", "dplyr", "readr", "purrr", "ggplot2", "rsample")
@@ -735,8 +735,6 @@ priorpred_negbin_tbl <- priorpred_priorparams_tbl %>%
 
 priorpred_negbin_tbl %>% print()
 ```
-
-
 
 
 
