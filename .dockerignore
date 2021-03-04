@@ -1,9 +1,10 @@
-.git/*
-
-geospatial_data/*
-data/*
-
 *.Rmd
 *.html
 *.rds
 *.Rproj
+
+.Rproj.user/*
+
+.git/*
+geospatial_data/*
+data/*
