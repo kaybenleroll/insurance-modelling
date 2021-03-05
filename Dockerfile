@@ -1,4 +1,4 @@
-FROM kaybenleroll/r_baseimage:base202011
+FROM kaybenleroll/r_baseimage:base202102
 
 RUN apt-get update \
   && apt-get upgrade -y \
@@ -19,8 +19,6 @@ RUN apt-get update \
     evir \
     knitr \
     poweRlaw \
-    pryr \
-    rmdformats \
     rprojroot \
     sf \
     sp \

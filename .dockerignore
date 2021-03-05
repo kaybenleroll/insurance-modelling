@@ -1,10 +1,14 @@
-*.Rmd
-*.html
-*.rds
-*.Rproj
-
 .Rproj.user/*
 
 .git/*
 geospatial_data/*
 data/*
+
+*_cache/*
+*_files/*
+
+*.Rmd
+*.html
+*.rds
+*.Rproj
+
