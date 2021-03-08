@@ -5,6 +5,7 @@ PROJECT_LABEL=latest
 IMAGE_TAG=${PROJECT_USER}/${PROJECT_NAME}:${PROJECT_LABEL}
 
 DOCKER_USER=rstudio
+DOCKER_PASS=CHANGEME
 DOCKER_UID=$(shell id -u)
 DOCKER_GID=$(shell id -g)
 
@@ -33,7 +34,7 @@ all-html: $(HTML_FILES)
 .Rmd.html:
 	Rscript -e 'rmarkdown::render("$<")'
 
-.dot.png: %.dot
+.dot.png:
 	dot -Tpng -o$*.png $<
 
 full_deps.dot:
@@ -44,7 +45,7 @@ depgraph: full_deps.dot full_deps.png
 
 exploring_mtpl1_dataset.html: construct_mtpl_datasets.html
 exploring_mtpl2_dataset.html: construct_mtpl_datasets.html
-
+build_mtpl1_freq_model.html: exploring_mtpl1_dataset.html
 
 
 gh-create-issue:
@@ -87,7 +88,7 @@ docker-run:
 	  -p ${RSTUDIO_PORT}:8787 \
 	  -v "${PWD}":"/home/${DOCKER_USER}/${PROJECT_NAME}":rw \
 	  -e USER=${DOCKER_USER} \
-	  -e PASSWORD=quickpass \
+	  -e PASSWORD=${DOCKER_PASS} \
 	  -e USERID=${DOCKER_UID} \
 	  -e GROUPID=${DOCKER_GID} \
 	  --name ${CONTAINER_NAME} \
