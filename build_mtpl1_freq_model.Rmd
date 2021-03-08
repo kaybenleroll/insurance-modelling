@@ -118,10 +118,10 @@ We sample this data at random for now, and take hold out 20% of it.
 ```{r construct_mtpl1_train_holdout, echo=TRUE}
 mtpl1_split <- modelling1_data_tbl %>% initial_split(prop = 0.8)
 
-mtpl1_training_tbl <- mtpl1_split %>% training()
+mtpl1_training_tbl <- mtpl1_split %>% training() %>% arrange(policy_id)
 mtpl1_training_tbl %>% glimpse()
 
-mtpl1_testing_tbl  <- mtpl1_split %>% testing()
+mtpl1_testing_tbl  <- mtpl1_split %>% testing()  %>% arrange(policy_id)
 mtpl1_testing_tbl %>% glimpse()
 ```
 
@@ -130,9 +130,25 @@ datasets (about 20 from each), to use as a consistent sample of the data to
 use for illustrative purposes.
 
 ```{r sample_smaller_data_subsets, echo=TRUE}
-mtpl1_training_20_tbl <- mtpl1_training_tbl %>% slice_sample(n = 25)
+n_small_sample <-  25
+n_sample       <- 250
 
-mtpl1_testing_20_tbl  <- mtpl1_testing_tbl  %>% slice_sample(n = 25)
+fit_data_tbl <- mtpl1_training_tbl %>% select(-sev_data)
+
+priorpred_input_tbl <- fit_data_tbl %>%
+  slice_sample(n = n_sample) %>%
+  arrange(policy_id)
+
+priorpred_input_tbl %>% glimpse()
+
+
+mtpl1_training_small_tbl <- priorpred_input_tbl %>%
+  slice_sample(n = n_small_sample) %>%
+  arrange(policy_id)
+
+mtpl1_testing_small_tbl  <- mtpl1_testing_tbl %>%
+  slice_sample(n = n_small_sample) %>%
+  arrange(policy_id)
 ```
 
 
@@ -195,7 +211,6 @@ calculate_mean_freq_summary <- function(data_tbl) {
   return(summary_tbl)
 }
 
-
 ```
 
 
@@ -209,8 +224,6 @@ To fit from the prior predictive rather than conditioning on the data, the
 model will not add the observed data and simply fit from the priors.
 
 ```{r fit_first_prior_model, echo=TRUE}
-fit_data_tbl <- mtpl1_training_tbl %>% select(-sev_data)
-
 mtpl1_freq1_prior_stanreg <- stan_glm(
     claim_count ~ gas + cat_driver_age,
     family   = poisson(),
@@ -233,13 +246,6 @@ using the `generated quantities` feature in Stan to generate a sample count of
 policies for each of the iterations in the posterior sample.
 
 ```{r construct_prior_predictive_data, echo=TRUE}
-n_sample <- 250
-
-priorpred_input_tbl <- fit_data_tbl %>%
-  slice_sample(n = n_sample) %>%
-  arrange(policy_id)
-
-priorpred_input_tbl %>% glimpse()
 ```
 
 We now use this data to generate simulations of counts.
@@ -491,71 +497,6 @@ of different attempts, so rather than build it piece by piece we instead
 construct a function that sets the priors and calculates the summary statistics
 of interesting from the prior predictive distribution. This should help us
 decide on the priors we use for the model.
-
-```{r construct_prior_model_functions, echo=TRUE}
-calculate_freqmodel_output_data <- function(prior_mean, prior_sd,
-                                            incpt_mean, incpt_sd,
-                                            autoscale,
-                                            fit_formula,
-                                            fit_data_tbl,
-                                            priorparam_input_tbl,
-                                            inc_stanreg  = FALSE,
-                                            dist_family  = "poisson",
-                                            calc_priorpd = FALSE
-                                            ) {
-
-  n_sample <- priorparam_input_tbl %>% nrow()
-  
-  freqmodel_stanreg <- stan_glm(
-      fit_formula,
-      family   = dist_family %>% get() %>% exec(),
-      data     = fit_data_tbl,
-      offset   = log(exposure),
-      iter     = 500,
-      chains   = 4,
-      QR       = TRUE,
-      prior_PD = calc_priorpd,
-      seed     = stan_seed,
-      prior_intercept = normal(location = incpt_mean, scale = incpt_sd, autoscale = autoscale),
-      prior           = normal(location = prior_mean, scale = prior_sd, autoscale = autoscale)
-      )
-
-  freqmodel_freqmean_tbl <- freqmodel_stanreg %>%
-    add_fitted_draws(
-      newdata = priorparam_input_tbl,
-      offset  = rep(1, n_sample),
-      value   = "freq_mean"
-      ) %>%
-    ungroup() %>%
-    select(policy_id, .draw, freq_mean)
-
-  freqmodel_sampcount_tbl <- freqmodel_stanreg %>%
-    add_predicted_draws(
-      newdata    = priorparam_input_tbl,
-      offset     = rep(1, n_sample),
-      prediction = "sample_count"
-      ) %>%
-    ungroup() %>%
-    select(policy_id, .draw, sample_count)
-
-  freqmodel_data_tbl <- freqmodel_freqmean_tbl %>%
-    inner_join(freqmodel_sampcount_tbl, by = c("policy_id", ".draw"))
-
-  freqmodel_params_tbl <- freqmodel_stanreg %>%
-    tidy_draws()
-  
-  freqmodel_lst <- list(
-    freqmodel_params = freqmodel_params_tbl,
-    freqmodel_output = freqmodel_data_tbl
-    )
-  
-  if(inc_stanreg == TRUE) {
-    freqmodel_lst$stanreg <- freqmodel_stanreg
-  }
-  
-  return(freqmodel_lst)
-}
-```
 
 
 We want to construct a set of parameters for our priors so that we can run the
@@ -817,24 +758,18 @@ the effect of priors on the various policies, so we choose a sample of the
 policies and then check those values.
 
 ```{r plot_sample_policy_frequencies, echo=TRUE}
-plot_posterior_tbl <- freqmodel_pois_compare_tbl %>%
+plot_tbl <- freqmodel_pois_compare_tbl %>%
   select(prior_id, label, freqmodel_output) %>%
   unnest(freqmodel_output) %>%
   mutate(prior_id = sprintf("%02d", prior_id)) %>%
-  filter(label == "posterior")
-
-
-plot_tbl <- plot_posterior_tbl %>%
-  select(policy_id) %>%
-  distinct() %>%
-  slice_sample(n = 20) %>%
-  inner_join(plot_posterior_tbl, by = "policy_id")
+  filter(label == "posterior") %>%
+  semi_join(mtpl1_training_small_tbl, by = "policy_id")
 
 ggplot(plot_tbl) +
   geom_boxplot(aes(x = policy_id, y = freq_mean, colour = prior_id)) +
   expand_limits(y = 0) +
   labs(x = "Policy ID", y = "Mean Frequency", colour = "Prior") +
-  ggtitle("Boxplot of Posterior Distribution of Sample Policies") +
+  ggtitle("Boxplot of Posterior Distribution of Sample Policies (Poisson)") +
   theme(axis.text.x = element_text(angle = 30, vjust = 0.5))
 ```
 
@@ -887,6 +822,21 @@ freqmodel_negbin_compare_tbl <- list(
 freqmodel_negbin_compare_tbl %>% glimpse()
 ```
 
+```{r plot_sample_policy_frequencies_negbin, echo=TRUE}
+plot_tbl <- freqmodel_negbin_compare_tbl %>%
+  select(prior_id, label, freqmodel_output) %>%
+  unnest(freqmodel_output) %>%
+  mutate(prior_id = sprintf("%02d", prior_id)) %>%
+  filter(label == "posterior") %>%
+  semi_join(mtpl1_training_small_tbl, by = "policy_id")
+
+ggplot(plot_tbl) +
+  geom_boxplot(aes(x = policy_id, y = freq_mean, colour = prior_id)) +
+  expand_limits(y = 0) +
+  labs(x = "Policy ID", y = "Mean Frequency", colour = "Prior") +
+  ggtitle("Boxplot of Posterior Distribution of Sample Policies (Neg Binomial)") +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5))
+```
 
 
 
@@ -911,7 +861,6 @@ distrib_comparison_tbl %>% glimpse()
 ```{r compare_pois_negbin_posterior_parameters, echo=TRUE}
 plot_tbl <- distrib_comparison_tbl %>%
   filter(
-    prior_id %in% c(4, 22),
     label == "posterior"
     ) %>%
   select(distrib, label, freqmodel_params) %>%
@@ -936,15 +885,15 @@ ggplot(plot_tbl) +
 ```{r compare_pois_negbin_posterior_meanfreq, echo=TRUE}
 plot_tbl <- distrib_comparison_tbl %>%
   filter(
-    prior_id %in% c(4, 22),
     label == "posterior"
     ) %>%
   select(distrib, label, freqmodel_output) %>%
   unnest(freqmodel_output) %>%
-  semi_join(mtpl1_training_20_tbl, by = "policy_id")
+  semi_join(mtpl1_training_small_tbl, by = "policy_id")
 
 ggplot(plot_tbl) +
   geom_boxplot(aes(x = policy_id, y = freq_mean, colour = distrib)) +
+  expand_limits(y = 0) +
   labs(x = "Policy ID", y = "Frequency Mean", colour = "Distribution") +
   ggtitle("Comparison of Posterior Distribution of the Mean Frequency") +
   theme(axis.text.x = element_text(angle = 30, vjust = 0.5))
@@ -955,16 +904,19 @@ counts produced by the `generated quantities` in the Stan model.
 
 ```{r plot_comparison_sample_count_barplots, echo=TRUE}
 barplot_tbl <- plot_tbl %>%
-  count(distrib, policy_id, sample_count)
+  count(Distribution = distrib, policy_id, sample_count)
 
 ggplot(barplot_tbl) +
-  geom_col(aes(x = sample_count, y = n, fill = distrib),
+  geom_col(aes(x = sample_count, y = n, fill = Distribution),
            width = 0.4, position = "dodge") +
+  scale_y_continuous(labels = label_comma()) +
   facet_wrap(vars(policy_id), scales = "free") +
   xlab("Claim Count") +
   ylab("Frequency") +
   ggtitle("Comparison Barplots for Select Policies for Distributions")
 ```
+
+
 
 
 
