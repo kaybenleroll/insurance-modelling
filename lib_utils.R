@@ -111,3 +111,27 @@ calculate_freqmodel_output_data <- function(prior_mean, prior_sd,
 
   return(freqmodel_lst)
 }
+
+
+calculate_mean_freq_summary <- function(data_tbl) {
+  summary_tbl <- data_tbl %>%
+    summarise(
+      .groups = "drop",
+
+      freqmean_min  = min(freq_mean) %>% round(4),
+      freqmean_p10  = quantile(freq_mean, 0.10) %>% round(4),
+      freqmean_p25  = quantile(freq_mean, 0.25) %>% round(4),
+      freqmean_p50  = quantile(freq_mean, 0.50) %>% round(4),
+      freqmean_p75  = quantile(freq_mean, 0.75) %>% round(4),
+      freqmean_p90  = quantile(freq_mean, 0.90) %>% round(4),
+      freqmean_max  = max(freq_mean) %>% round(4),
+
+      freqmean_mean = mean(freq_mean) %>% round(4),
+      freqmean_sd   = sd(freq_mean) %>% round(4)
+    )
+
+  return(summary_tbl)
+}
+
+
+#construct_

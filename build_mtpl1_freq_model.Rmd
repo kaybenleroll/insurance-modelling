@@ -118,10 +118,10 @@ We sample this data at random for now, and take hold out 20% of it.
 ```{r construct_mtpl1_train_holdout, echo=TRUE}
 mtpl1_split <- modelling1_data_tbl %>% initial_split(prop = 0.8)
 
-mtpl1_training_tbl <- mtpl1_split %>% training() %>% arrange(policy_id)
+mtpl1_training_tbl <- mtpl1_split %>% training() %>% arrange(as.numeric(policy_id))
 mtpl1_training_tbl %>% glimpse()
 
-mtpl1_testing_tbl  <- mtpl1_split %>% testing()  %>% arrange(policy_id)
+mtpl1_testing_tbl  <- mtpl1_split %>% testing()  %>% arrange(as.numeric(policy_id))
 mtpl1_testing_tbl %>% glimpse()
 ```
 
@@ -137,18 +137,18 @@ fit_data_tbl <- mtpl1_training_tbl %>% select(-sev_data)
 
 priorpred_input_tbl <- fit_data_tbl %>%
   slice_sample(n = n_sample) %>%
-  arrange(policy_id)
+  arrange(as.numeric(policy_id))
 
 priorpred_input_tbl %>% glimpse()
 
 
 mtpl1_training_small_tbl <- priorpred_input_tbl %>%
   slice_sample(n = n_small_sample) %>%
-  arrange(policy_id)
+  arrange(as.numeric(policy_id))
 
 mtpl1_testing_small_tbl  <- mtpl1_testing_tbl %>%
   slice_sample(n = n_small_sample) %>%
-  arrange(policy_id)
+  arrange(as.numeric(policy_id))
 ```
 
 
@@ -187,31 +187,10 @@ should be fine. This leaves the intercept, so we start with a Normal prior here
 also and see what the effect is.
 
 For the purposes of creating some summary information on the mean frequency for
-our frequency model, we create a simple summary function that calculates this
-summary information in a standard way.
+our frequency model, we create a simple summary function
+`calculate_mean_freq_summary` that calculates this summary information in a
+standard way.
 
-```{r calculate_mean_freq_summary, echo=TRUE}
-calculate_mean_freq_summary <- function(data_tbl) {
-  summary_tbl <- data_tbl %>%
-    summarise(
-      .groups = "drop",
-  
-      freqmean_min  = min(freq_mean) %>% round(4),
-      freqmean_p10  = quantile(freq_mean, 0.10) %>% round(4),
-      freqmean_p25  = quantile(freq_mean, 0.25) %>% round(4),
-      freqmean_p50  = quantile(freq_mean, 0.50) %>% round(4),
-      freqmean_p75  = quantile(freq_mean, 0.75) %>% round(4),
-      freqmean_p90  = quantile(freq_mean, 0.90) %>% round(4),
-      freqmean_max  = max(freq_mean) %>% round(4),
-
-      freqmean_mean = mean(freq_mean) %>% round(4),
-      freqmean_sd   = sd(freq_mean) %>% round(4)
-      )
-
-  return(summary_tbl)
-}
-
-```
 
 
 ### Our First Prior Model

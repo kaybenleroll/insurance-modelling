@@ -1,4 +1,4 @@
-FROM kaybenleroll/r_baseimage:base202102
+FROM kaybenleroll/r_baseimage:base202104
 
 RUN apt-get update \
   && apt-get upgrade -y \
